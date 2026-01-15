@@ -683,7 +683,7 @@ async def run_api_server_standalone():
         return {"status": "healthy", "bot_ready": False}
     
     host = os.getenv('API_HOST', '0.0.0.0')
-    port = int(os.getenv('API_PORT', 10000))
+    port = int(os.getenv('PORT', os.getenv('API_PORT', 8000)))
     
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
