@@ -668,17 +668,39 @@ class DiscordBot(commands.Bot):
             logger.error(f'Error sending quota warning: {e}')
 
 async def main():
-    """Main function to run the bot"""
+    """Main function to run the bot with retry logic"""
     bot = DiscordBot()
+    max_retries = 5
+    retry_delay = 10  # seconds
     
-    try:
-        await bot.start(os.getenv('DISCORD_TOKEN'))
-    except KeyboardInterrupt:
-        logger.info('Bot shutdown requested')
-    except Exception as e:
-        logger.error(f'Bot error: {e}')
-    finally:
-        await bot.close()
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Starting bot (attempt {attempt + 1}/{max_retries})...")
+            await bot.start(os.getenv('DISCORD_TOKEN'))
+            break  # If successful, exit loop
+        except KeyboardInterrupt:
+            logger.info('Bot shutdown requested')
+            break
+        except OSError as e:
+            if "Network is unreachable" in str(e) or e.errno == 101:
+                logger.warning(f"Network unreachable, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error("Max retries reached. Network still unreachable.")
+            else:
+                logger.error(f'Bot error: {e}')
+                break
+        except Exception as e:
+            logger.error(f'Bot error: {e}')
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+            else:
+                break
+    
+    await bot.close()
 
 
 class WavelinkTrackSelectionView(discord.ui.View):
