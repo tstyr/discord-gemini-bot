@@ -667,11 +667,37 @@ class DiscordBot(commands.Bot):
         except Exception as e:
             logger.error(f'Error sending quota warning: {e}')
 
+async def run_api_server_standalone():
+    """Run API server standalone for health checks"""
+    from fastapi import FastAPI
+    import uvicorn
+    
+    app = FastAPI()
+    
+    @app.get("/")
+    async def root():
+        return {"status": "starting", "message": "Bot is initializing..."}
+    
+    @app.get("/api/health")
+    async def health():
+        return {"status": "healthy", "bot_ready": False}
+    
+    host = os.getenv('API_HOST', '0.0.0.0')
+    port = int(os.getenv('API_PORT', 10000))
+    
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
 async def main():
     """Main function to run the bot with retry logic"""
     bot = DiscordBot()
-    max_retries = 5
-    retry_delay = 10  # seconds
+    max_retries = 10
+    retry_delay = 5  # seconds
+    
+    # Start a minimal API server first to satisfy Render's port binding
+    api_task = None
     
     for attempt in range(max_retries):
         try:
@@ -684,9 +710,16 @@ async def main():
         except OSError as e:
             if "Network is unreachable" in str(e) or e.errno == 101:
                 logger.warning(f"Network unreachable, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                
+                # Start standalone API server on first network failure
+                if api_task is None:
+                    logger.info("Starting standalone API server for health checks...")
+                    api_task = asyncio.create_task(run_api_server_standalone())
+                    await asyncio.sleep(2)  # Give server time to start
+                
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay = min(retry_delay * 1.5, 60)  # Cap at 60 seconds
                 else:
                     logger.error("Max retries reached. Network still unreachable.")
             else:
@@ -699,6 +732,10 @@ async def main():
                 await asyncio.sleep(retry_delay)
             else:
                 break
+    
+    # Cancel API task if running
+    if api_task and not api_task.done():
+        api_task.cancel()
     
     await bot.close()
 
