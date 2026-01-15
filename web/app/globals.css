@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --osu-dark: #111111;
+  --osu-pink: #ff66aa;
+  --osu-cyan: #00ffcc;
+  --osu-purple: #aa66ff;
+}
+
+body {
+  background: var(--osu-dark);
+  color: white;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* osu!lazer style diagonal lines background */
+.osu-bg-pattern {
+  background: 
+    linear-gradient(135deg, transparent 40%, rgba(255, 102, 170, 0.03) 40%, rgba(255, 102, 170, 0.03) 60%, transparent 60%),
+    linear-gradient(135deg, transparent 60%, rgba(170, 102, 255, 0.03) 60%, rgba(170, 102, 255, 0.03) 80%, transparent 80%);
+  background-size: 100px 100px;
+}
+
+/* Glowing orbs */
+.osu-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.osu-orb-pink {
+  background: var(--osu-pink);
+}
+
+.osu-orb-cyan {
+  background: var(--osu-cyan);
+}
+
+.osu-orb-purple {
+  background: var(--osu-purple);
+}

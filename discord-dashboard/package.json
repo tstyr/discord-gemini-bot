@@ -1,0 +1,10 @@
+{
+  "name": "discord-dashboard",
+  "private": true,
+  "workspaces": ["bot", "web", "shared"],
+  "scripts": {
+    "dev:bot": "npm run dev -w bot",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w bot && npm run build -w web"
+  }
+}
