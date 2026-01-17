@@ -141,11 +141,17 @@ class DiscordBot(commands.Bot):
         """Handle incoming messages"""
         if message.author == self.user:
             return
+        
+        # Log message for debugging
+        logger.debug(f"Message received from {message.author.name} in {message.channel.name}: {message.content[:50]}")
             
         # Check if this channel is set for auto-response
         is_chat_channel = await self.database.is_chat_channel(message.channel.id)
+        logger.debug(f"Channel {message.channel.name} is_chat_channel: {is_chat_channel}")
+        
         if is_chat_channel:
             # Process AI response in background
+            logger.info(f"Processing AI response for message from {message.author.name}")
             asyncio.create_task(self.handle_ai_response(message))
         
         await self.process_commands(message)
