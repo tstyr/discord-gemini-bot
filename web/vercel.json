@@ -36,6 +36,8 @@
     }
   ],
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "NEXT_PUBLIC_API_URL": "https://dying-nana-haklab-3e0dcb62.koyeb.app",
+    "NEXT_PUBLIC_WS_URL": "wss://dying-nana-haklab-3e0dcb62.koyeb.app/ws"
   }
 }
