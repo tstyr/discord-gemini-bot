@@ -343,9 +343,13 @@ export default function Dashboard() {
     <main className="min-h-screen bg-discord-darker flex">
       {/* 左サイドバー - ユーザーアイコン一覧 */}
       <aside className="w-20 bg-discord-dark flex flex-col items-center py-4 gap-2 border-r border-gray-800">
-        <div className="w-12 h-12 bg-discord-blurple rounded-full flex items-center justify-center mb-4">
+        <button
+          onClick={() => setSelectedUser(null)}
+          className="w-12 h-12 bg-discord-blurple rounded-full flex items-center justify-center mb-4 hover:bg-discord-blurple/80 transition cursor-pointer"
+          title="ダッシュボードに戻る"
+        >
           <Bot className="w-7 h-7 text-white" />
-        </div>
+        </button>
         <div className="w-8 h-0.5 bg-gray-700 rounded mb-2" />
         
         {/* ユーザーアイコン一覧 */}
@@ -387,11 +391,16 @@ export default function Dashboard() {
               {/* チャットヘッダー */}
               <header className="h-14 bg-discord-dark border-b border-gray-800 flex items-center px-4 gap-3">
                 <button 
-                  onClick={() => setSelectedUser(null)} 
-                  className="p-2 hover:bg-gray-700 rounded transition"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedUser(null);
+                  }}
+                  className="p-2 hover:bg-discord-blurple rounded-lg transition flex items-center gap-2 bg-discord-darker"
                   title="ダッシュボードに戻る"
                 >
-                  <ArrowLeft className="w-5 h-5 text-gray-400" />
+                  <ArrowLeft className="w-5 h-5 text-white" />
+                  <span className="text-white text-sm font-medium">戻る</span>
                 </button>
                 {selectedUser.avatar ? (
                   <img src={selectedUser.avatar} alt="" className="w-8 h-8 rounded-full" />
@@ -504,6 +513,73 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
+
+                {/* サーバー管理機能 */}
+                {selectedGuild && analyticsData?.summary && (
+                  <section className="bg-discord-dark p-4 rounded-xl">
+                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-discord-blurple" />
+                      サーバー管理 - {selectedGuild.name}
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* 総メッセージ数 */}
+                      <div className="bg-discord-darker p-4 rounded-lg border-l-4 border-discord-green">
+                        <div className="flex items-center justify-between mb-2">
+                          <MessageSquare className="w-8 h-8 text-discord-green" />
+                          <span className="text-2xl font-bold text-white">{analyticsData.summary.total_messages?.toLocaleString() || 0}</span>
+                        </div>
+                        <p className="text-gray-400 text-sm">総メッセージ数</p>
+                        <p className="text-gray-500 text-xs mt-1">AIとの会話回数</p>
+                      </div>
+
+                      {/* アクティブユーザー数 */}
+                      <div className="bg-discord-darker p-4 rounded-lg border-l-4 border-discord-blurple">
+                        <div className="flex items-center justify-between mb-2">
+                          <Users className="w-8 h-8 text-discord-blurple" />
+                          <span className="text-2xl font-bold text-white">{analyticsData.summary.total_users?.toLocaleString() || 0}</span>
+                        </div>
+                        <p className="text-gray-400 text-sm">アクティブユーザー</p>
+                        <p className="text-gray-500 text-xs mt-1">ユニークユーザー数</p>
+                      </div>
+
+                      {/* トークン使用量 */}
+                      <div className="bg-discord-darker p-4 rounded-lg border-l-4 border-discord-yellow">
+                        <div className="flex items-center justify-between mb-2">
+                          <Zap className="w-8 h-8 text-discord-yellow" />
+                          <span className="text-2xl font-bold text-white">{analyticsData.summary.total_tokens?.toLocaleString() || 0}</span>
+                        </div>
+                        <p className="text-gray-400 text-sm">トークン使用量</p>
+                        <p className="text-gray-500 text-xs mt-1">累計トークン数</p>
+                      </div>
+
+                      {/* 音楽再生回数 */}
+                      <div className="bg-discord-darker p-4 rounded-lg border-l-4 border-discord-fuchsia">
+                        <div className="flex items-center justify-between mb-2">
+                          <Music className="w-8 h-8 text-discord-fuchsia" />
+                          <span className="text-2xl font-bold text-white">{analyticsData.summary.total_music?.toLocaleString() || 0}</span>
+                        </div>
+                        <p className="text-gray-400 text-sm">音楽再生回数</p>
+                        <p className="text-gray-500 text-xs mt-1">累計再生回数</p>
+                      </div>
+                    </div>
+
+                    {/* サーバー情報 */}
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-discord-darker p-3 rounded-lg">
+                        <p className="text-gray-400 text-xs mb-1">サーバー名</p>
+                        <p className="text-white font-medium">{selectedGuild.name}</p>
+                      </div>
+                      <div className="bg-discord-darker p-3 rounded-lg">
+                        <p className="text-gray-400 text-xs mb-1">メンバー数</p>
+                        <p className="text-white font-medium">{selectedGuild.member_count?.toLocaleString() || 0}人</p>
+                      </div>
+                      <div className="bg-discord-darker p-3 rounded-lg">
+                        <p className="text-gray-400 text-xs mb-1">サーバーID</p>
+                        <p className="text-white font-mono text-sm">{selectedGuild.id}</p>
+                      </div>
+                    </div>
+                  </section>
+                )}
 
                 {/* 分析グラフ */}
                 <section className="bg-discord-dark p-4 rounded-xl">
@@ -621,15 +697,25 @@ export default function Dashboard() {
 
                 {/* 音楽プレイヤー */}
                 <section className="bg-discord-dark p-4 rounded-xl">
-                  <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Music className="w-5 h-5 text-discord-fuchsia" />
-                    音楽プレイヤー
-                  </h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <Music className="w-5 h-5 text-discord-fuchsia" />
+                      音楽プレイヤー
+                    </h2>
+                    {/* デバッグ情報 */}
+                    <div className="text-xs text-gray-500">
+                      {musicStatus ? (
+                        <span>接続: {musicStatus.connected ? '✓' : '✗'} | 再生: {musicStatus.playing ? '✓' : '✗'}</span>
+                      ) : (
+                        <span>ステータス取得中...</span>
+                      )}
+                    </div>
+                  </div>
                   {musicStatus?.connected && musicStatus.current_track ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-4">
                         {musicStatus.current_track.artwork && (
-                          <img src={musicStatus.current_track.artwork} alt="" className="w-16 h-16 rounded-lg" />
+                          <img src={musicStatus.current_track.artwork} alt="" className="w-16 h-16 rounded-lg object-cover" />
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-white font-medium truncate">{musicStatus.current_track.title}</p>
@@ -638,21 +724,28 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="flex items-center justify-center gap-4">
-                        <button onClick={() => controlMusic(musicStatus.paused ? "resume" : "pause")} className="p-3 bg-discord-blurple rounded-full">
+                        <button onClick={() => controlMusic(musicStatus.paused ? "resume" : "pause")} className="p-3 bg-discord-blurple rounded-full hover:bg-discord-blurple/80 transition">
                           {musicStatus.paused ? <Play className="w-6 h-6 text-white" /> : <Pause className="w-6 h-6 text-white" />}
                         </button>
-                        <button onClick={() => controlMusic("skip")} className="p-2 bg-discord-darker rounded-full"><SkipForward className="w-5 h-5 text-white" /></button>
-                        <button onClick={() => controlMusic("stop")} className="p-2 bg-discord-darker rounded-full"><Square className="w-5 h-5 text-white" /></button>
+                        <button onClick={() => controlMusic("skip")} className="p-2 bg-discord-darker rounded-full hover:bg-gray-700 transition"><SkipForward className="w-5 h-5 text-white" /></button>
+                        <button onClick={() => controlMusic("stop")} className="p-2 bg-discord-darker rounded-full hover:bg-gray-700 transition"><Square className="w-5 h-5 text-white" /></button>
                         <div className="flex items-center gap-2 ml-4">
                           <Volume2 className="w-4 h-4 text-gray-400" />
                           <span className="text-gray-400 text-sm">{musicStatus.volume || 100}%</span>
                         </div>
                       </div>
                     </div>
+                  ) : musicStatus?.connected && !musicStatus.current_track ? (
+                    <div className="text-center py-6">
+                      <Music className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+                      <p className="text-gray-500">接続済み - 再生待機中</p>
+                      <p className="text-gray-600 text-xs mt-1">Discordで /play コマンドを使用してください</p>
+                    </div>
                   ) : (
                     <div className="text-center py-6">
                       <Music className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                      <p className="text-gray-500">再生中の曲はありません</p>
+                      <p className="text-gray-500">ボイスチャンネルに接続していません</p>
+                      <p className="text-gray-600 text-xs mt-1">Discordで /play コマンドを使用してください</p>
                     </div>
                   )}
                 </section>
@@ -737,6 +830,15 @@ export default function Dashboard() {
         {/* 右サイドバー - ユーザーリスト */}
         <aside className="w-60 bg-discord-dark border-l border-gray-800 hidden lg:block">
           <div className="p-4">
+            {selectedUser && (
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="w-full mb-3 p-2 bg-discord-blurple hover:bg-discord-blurple/80 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4 text-white" />
+                <span className="text-white text-sm font-medium">ダッシュボードに戻る</span>
+              </button>
+            )}
             <h3 className="text-gray-400 text-xs font-semibold uppercase mb-3">ユーザー — {chatUsers.length}</h3>
             <div className="space-y-1">
               {chatUsers.map((user) => (
