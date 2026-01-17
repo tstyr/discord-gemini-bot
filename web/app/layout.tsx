@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Discord Bot Dashboard",
-  description: "AI Bot管理ダッシュボード",
+  title: "AI Discord Bot Dashboard",
+  description: "リアルタイム監視・管理ダッシュボード",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className="min-h-screen osu-bg-pattern">{children}</body>
+      <body className="bg-discord-darker text-white antialiased">{children}</body>
     </html>
   );
 }

@@ -3,43 +3,49 @@
 @tailwind utilities;
 
 :root {
-  --osu-dark: #111111;
-  --osu-pink: #ff66aa;
-  --osu-cyan: #00ffcc;
-  --osu-purple: #aa66ff;
+  --discord-blurple: #5865F2;
+  --discord-green: #57F287;
+  --discord-yellow: #FEE75C;
+  --discord-fuchsia: #EB459E;
+  --discord-red: #ED4245;
+  --discord-dark: #23272A;
+  --discord-darker: #1E2124;
 }
 
 body {
-  background: var(--osu-dark);
+  background-color: var(--discord-darker);
   color: white;
-  font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* osu!lazer style diagonal lines background */
-.osu-bg-pattern {
-  background: 
-    linear-gradient(135deg, transparent 40%, rgba(255, 102, 170, 0.03) 40%, rgba(255, 102, 170, 0.03) 60%, transparent 60%),
-    linear-gradient(135deg, transparent 60%, rgba(170, 102, 255, 0.03) 60%, rgba(170, 102, 255, 0.03) 80%, transparent 80%);
-  background-size: 100px 100px;
+/* スクロールバー */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-/* Glowing orbs */
-.osu-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.3;
-  pointer-events: none;
+::-webkit-scrollbar-track {
+  background: var(--discord-darker);
 }
 
-.osu-orb-pink {
-  background: var(--osu-pink);
+::-webkit-scrollbar-thumb {
+  background: var(--discord-dark);
+  border-radius: 4px;
 }
 
-.osu-orb-cyan {
-  background: var(--osu-cyan);
+::-webkit-scrollbar-thumb:hover {
+  background: var(--discord-blurple);
 }
 
-.osu-orb-purple {
-  background: var(--osu-purple);
+/* アニメーション */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px var(--discord-blurple);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--discord-blurple);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
 }
