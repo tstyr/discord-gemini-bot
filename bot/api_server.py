@@ -810,3 +810,22 @@ class APIServer:
             except Exception as e:
                 logger.error(f'Error getting AI EQ settings: {e}')
                 raise HTTPException(status_code=500, detail="Failed to get EQ settings")
+        
+        @self.app.get("/api/guilds/{guild_id}/analytics")
+        async def get_guild_analytics(guild_id: int, period: str = "week"):
+            """サーバーの分析データを取得"""
+            try:
+                data = await self.bot.database.get_analytics_data(guild_id, period)
+                summary = await self.bot.database.get_guild_summary(guild_id)
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "period": period,
+                        "stats": data,
+                        "summary": summary
+                    }
+                }
+            except Exception as e:
+                logger.error(f'Error getting analytics: {e}')
+                raise HTTPException(status_code=500, detail="Failed to get analytics")

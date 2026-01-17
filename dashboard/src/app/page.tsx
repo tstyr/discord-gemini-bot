@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Bot, MessageSquare, Activity, Music, 
   Users, Wifi, WifiOff, Play, Pause, SkipForward, 
-  Square, Volume2, RefreshCw, Zap, ArrowLeft, Send
+  Square, Volume2, RefreshCw, Zap, ArrowLeft, Send, BarChart3
 } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Guild {
   id: number;
@@ -108,6 +109,11 @@ export default function Dashboard() {
   // リアルタイムログ
   const [realtimeLogs, setRealtimeLogs] = useState<string[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  
+  // 分析データ
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month' | 'all'>('week');
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   // WebSocket接続
   useEffect(() => {
@@ -278,6 +284,28 @@ export default function Dashboard() {
     if (!selectedGuild) return;
     await fetch(`${API_URL}/api/guilds/${selectedGuild.id}/music/control?action=${action}`, { method: "POST" });
   };
+  
+  const fetchAnalytics = async (period: 'day' | 'week' | 'month' | 'all') => {
+    if (!selectedGuild) return;
+    
+    setLoadingAnalytics(true);
+    try {
+      const res = await fetch(`${API_URL}/api/guilds/${selectedGuild.id}/analytics?period=${period}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsData(data.data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch analytics:', e);
+    }
+    setLoadingAnalytics(false);
+  };
+  
+  useEffect(() => {
+    if (selectedGuild) {
+      fetchAnalytics(analyticsPeriod);
+    }
+  }, [selectedGuild, analyticsPeriod]);
 
   const formatDuration = (ms: number) => {
     const mins = Math.floor(ms / 60000);
@@ -466,6 +494,120 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
+
+                {/* 分析グラフ */}
+                <section className="bg-discord-dark p-4 rounded-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-discord-blurple" />
+                      統計グラフ
+                    </h2>
+                    <div className="flex gap-2">
+                      {(['day', 'week', 'month', 'all'] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setAnalyticsPeriod(p)}
+                          className={`px-3 py-1 rounded text-sm transition ${
+                            analyticsPeriod === p 
+                              ? 'bg-discord-blurple text-white' 
+                              : 'bg-discord-darker text-gray-400 hover:bg-gray-700'
+                          }`}
+                        >
+                          {p === 'day' ? '日間' : p === 'week' ? '週間' : p === 'month' ? '月間' : '全期間'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {loadingAnalytics ? (
+                    <div className="flex justify-center py-12">
+                      <RefreshCw className="w-8 h-8 text-gray-500 animate-spin" />
+                    </div>
+                  ) : analyticsData && analyticsData.stats && analyticsData.stats.length > 0 ? (
+                    <>
+                      {/* サマリー統計 */}
+                      {analyticsData.summary && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                          <div className="bg-discord-darker p-3 rounded-lg">
+                            <p className="text-gray-400 text-xs mb-1">総メッセージ</p>
+                            <p className="text-white text-xl font-bold">{analyticsData.summary.total_messages?.toLocaleString() || 0}</p>
+                          </div>
+                          <div className="bg-discord-darker p-3 rounded-lg">
+                            <p className="text-gray-400 text-xs mb-1">総ユーザー</p>
+                            <p className="text-white text-xl font-bold">{analyticsData.summary.total_users?.toLocaleString() || 0}</p>
+                          </div>
+                          <div className="bg-discord-darker p-3 rounded-lg">
+                            <p className="text-gray-400 text-xs mb-1">総トークン</p>
+                            <p className="text-white text-xl font-bold">{analyticsData.summary.total_tokens?.toLocaleString() || 0}</p>
+                          </div>
+                          <div className="bg-discord-darker p-3 rounded-lg">
+                            <p className="text-gray-400 text-xs mb-1">音楽再生</p>
+                            <p className="text-white text-xl font-bold">{analyticsData.summary.total_music?.toLocaleString() || 0}</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* グラフ */}
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={analyticsData.stats}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                          <XAxis 
+                            dataKey="date" 
+                            stroke="#888" 
+                            style={{ fontSize: '12px' }}
+                          />
+                          <YAxis stroke="#888" style={{ fontSize: '12px' }} />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: '#2f3136', 
+                              border: 'none', 
+                              borderRadius: '8px',
+                              color: '#fff'
+                            }}
+                            labelStyle={{ color: '#fff' }}
+                          />
+                          <Legend 
+                            wrapperStyle={{ fontSize: '12px' }}
+                            iconType="line"
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="message_count" 
+                            stroke="#5865f2" 
+                            name="メッセージ" 
+                            strokeWidth={2}
+                            dot={{ fill: '#5865f2', r: 3 }}
+                            activeDot={{ r: 5 }}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="user_count" 
+                            stroke="#57f287" 
+                            name="ユーザー" 
+                            strokeWidth={2}
+                            dot={{ fill: '#57f287', r: 3 }}
+                            activeDot={{ r: 5 }}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="music_count" 
+                            stroke="#eb459e" 
+                            name="音楽" 
+                            strokeWidth={2}
+                            dot={{ fill: '#eb459e', r: 3 }}
+                            activeDot={{ r: 5 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </>
+                  ) : (
+                    <div className="text-center py-12">
+                      <BarChart3 className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                      <p className="text-gray-500">統計データがありません</p>
+                      <p className="text-gray-600 text-sm mt-1">メッセージを送信すると統計が表示されます</p>
+                    </div>
+                  )}
+                </section>
 
                 {/* 音楽プレイヤー */}
                 <section className="bg-discord-dark p-4 rounded-xl">

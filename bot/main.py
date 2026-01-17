@@ -254,6 +254,11 @@ class DiscordBot(commands.Bot):
                         message_type='auto_response'
                     )
                     
+                    # Update analytics
+                    await self.database.increment_daily_stat(message.guild.id, 'message_count')
+                    await self.database.increment_daily_stat(message.guild.id, 'user_count', message.author.id)
+                    await self.database.increment_daily_stat(message.guild.id, 'token_count')
+                    
                     # Update conversation history
                     self.database.update_user_history(
                         message.author.id,

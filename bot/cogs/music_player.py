@@ -316,6 +316,8 @@ class MusicPlayer(commands.Cog):
                 if not vc.playing:
                     await vc.play(first_track)
                     queue.current = first_track
+                    # Analytics tracking
+                    await self.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
                 else:
                     queue.add(first_track)
                 
@@ -536,6 +538,8 @@ class MusicPlayer(commands.Cog):
             if not vc.playing:
                 await vc.play(track)
                 queue.current = track
+                # Analytics tracking
+                await self.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
                 
                 embed = discord.Embed(
                     title="🤖 AI推薦曲を再生",
@@ -678,6 +682,8 @@ class PlaybackModeView(discord.ui.View):
             if not vc.playing:
                 await vc.play(self.track)
                 queue.current = self.track
+                # Analytics tracking
+                await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
                 
                 # Create player UI with buttons
                 from music_ui import MusicPlayerView
@@ -955,6 +961,8 @@ class SlashCommandTrackSelectionView(discord.ui.View):
             if not vc.playing:
                 await vc.play(track)
                 queue.current = track
+                # Analytics tracking
+                await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
                 
                 # Create player UI
                 from music_ui import MusicPlayerView

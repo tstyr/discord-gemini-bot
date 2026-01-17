@@ -103,6 +103,45 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            
+            # Analytics tables
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS daily_stats (
+                    id SERIAL PRIMARY KEY,
+                    guild_id BIGINT NOT NULL,
+                    date DATE NOT NULL,
+                    message_count INTEGER DEFAULT 0,
+                    user_count INTEGER DEFAULT 0,
+                    token_count INTEGER DEFAULT 0,
+                    music_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, date)
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_daily_stats_guild_date 
+                ON daily_stats(guild_id, date)
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS hourly_stats (
+                    id SERIAL PRIMARY KEY,
+                    guild_id BIGINT NOT NULL,
+                    hour TIMESTAMP NOT NULL,
+                    message_count INTEGER DEFAULT 0,
+                    user_count INTEGER DEFAULT 0,
+                    token_count INTEGER DEFAULT 0,
+                    music_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, hour)
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_hourly_stats_guild_hour 
+                ON hourly_stats(guild_id, hour)
+            ''')
     
     async def _create_tables_sqlite(self):
         """Create SQLite tables (fallback)"""
@@ -489,3 +528,207 @@ class Database:
         except Exception as e:
             logger.error(f'Error removing music channel: {e}')
             return False
+    
+    async def increment_daily_stat(self, guild_id: int, stat_type: str, user_id: Optional[int] = None):
+        """日次統計をインクリメント"""
+        try:
+            today = datetime.now().date()
+            
+            if self.pool:
+                if stat_type == 'user_count' and user_id:
+                    # ユーザー数は重複カウントしない
+                    row = await self._fetchone('''
+                        SELECT user_count FROM daily_stats 
+                        WHERE guild_id = $1 AND date = $2
+                    ''', guild_id, today)
+                    
+                    # 今日のユニークユーザー数を取得
+                    unique_users = await self._fetchone('''
+                        SELECT COUNT(DISTINCT user_id) as count
+                        FROM chat_logs
+                        WHERE guild_id = $1 AND DATE(created_at) = $2
+                    ''', guild_id, today)
+                    
+                    user_count = unique_users['count'] if unique_users else 0
+                    
+                    await self._execute(f'''
+                        INSERT INTO daily_stats (guild_id, date, user_count)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (guild_id, date)
+                        DO UPDATE SET user_count = $3
+                    ''', guild_id, today, user_count)
+                else:
+                    await self._execute(f'''
+                        INSERT INTO daily_stats (guild_id, date, {stat_type})
+                        VALUES ($1, $2, 1)
+                        ON CONFLICT (guild_id, date)
+                        DO UPDATE SET {stat_type} = daily_stats.{stat_type} + 1
+                    ''', guild_id, today)
+                
+                # 時間別統計も更新
+                current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
+                if stat_type == 'user_count' and user_id:
+                    unique_users_hour = await self._fetchone('''
+                        SELECT COUNT(DISTINCT user_id) as count
+                        FROM chat_logs
+                        WHERE guild_id = $1 AND created_at >= $2
+                    ''', guild_id, current_hour)
+                    
+                    user_count_hour = unique_users_hour['count'] if unique_users_hour else 0
+                    
+                    await self._execute(f'''
+                        INSERT INTO hourly_stats (guild_id, hour, user_count)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (guild_id, hour)
+                        DO UPDATE SET user_count = $3
+                    ''', guild_id, current_hour, user_count_hour)
+                else:
+                    await self._execute(f'''
+                        INSERT INTO hourly_stats (guild_id, hour, {stat_type})
+                        VALUES ($1, $2, 1)
+                        ON CONFLICT (guild_id, hour)
+                        DO UPDATE SET {stat_type} = hourly_stats.{stat_type} + 1
+                    ''', guild_id, current_hour)
+        except Exception as e:
+            logger.error(f'Error incrementing daily stat: {e}')
+    
+    async def get_analytics_data(self, guild_id: int, period: str = "week"):
+        """分析データを取得"""
+        try:
+            if self.pool:
+                if period == "day":
+                    # 過去24時間
+                    rows = await self._fetchall('''
+                        SELECT 
+                            TO_CHAR(hour, 'HH24:MI') as time,
+                            message_count,
+                            user_count,
+                            token_count,
+                            music_count
+                        FROM hourly_stats
+                        WHERE guild_id = $1 AND hour >= NOW() - INTERVAL '24 hours'
+                        ORDER BY hour
+                    ''', guild_id)
+                    return [{
+                        'date': r['time'],
+                        'message_count': r['message_count'],
+                        'user_count': r['user_count'],
+                        'token_count': r['token_count'],
+                        'music_count': r['music_count']
+                    } for r in rows]
+                elif period == "week":
+                    # 過去7日
+                    rows = await self._fetchall('''
+                        SELECT 
+                            TO_CHAR(date, 'MM/DD') as date,
+                            message_count,
+                            user_count,
+                            token_count,
+                            music_count
+                        FROM daily_stats
+                        WHERE guild_id = $1 AND date >= CURRENT_DATE - INTERVAL '7 days'
+                        ORDER BY date
+                    ''', guild_id)
+                    return [{
+                        'date': r['date'],
+                        'message_count': r['message_count'],
+                        'user_count': r['user_count'],
+                        'token_count': r['token_count'],
+                        'music_count': r['music_count']
+                    } for r in rows]
+                elif period == "month":
+                    # 過去30日
+                    rows = await self._fetchall('''
+                        SELECT 
+                            TO_CHAR(date, 'MM/DD') as date,
+                            message_count,
+                            user_count,
+                            token_count,
+                            music_count
+                        FROM daily_stats
+                        WHERE guild_id = $1 AND date >= CURRENT_DATE - INTERVAL '30 days'
+                        ORDER BY date
+                    ''', guild_id)
+                    return [{
+                        'date': r['date'],
+                        'message_count': r['message_count'],
+                        'user_count': r['user_count'],
+                        'token_count': r['token_count'],
+                        'music_count': r['music_count']
+                    } for r in rows]
+                else:  # all
+                    # 全期間
+                    rows = await self._fetchall('''
+                        SELECT 
+                            TO_CHAR(date, 'YYYY/MM/DD') as date,
+                            message_count,
+                            user_count,
+                            token_count,
+                            music_count
+                        FROM daily_stats
+                        WHERE guild_id = $1
+                        ORDER BY date
+                    ''', guild_id)
+                    return [{
+                        'date': r['date'],
+                        'message_count': r['message_count'],
+                        'user_count': r['user_count'],
+                        'token_count': r['token_count'],
+                        'music_count': r['music_count']
+                    } for r in rows]
+            else:
+                # SQLite fallback - simplified
+                return []
+        except Exception as e:
+            logger.error(f'Error getting analytics data: {e}')
+            return []
+    
+    async def get_guild_summary(self, guild_id: int):
+        """サーバーの統計サマリーを取得"""
+        try:
+            if self.pool:
+                # 総メッセージ数
+                total_messages = await self._fetchone('''
+                    SELECT COALESCE(SUM(message_count), 0) as total
+                    FROM daily_stats WHERE guild_id = $1
+                ''', guild_id)
+                
+                # 総ユーザー数（ユニーク）
+                total_users = await self._fetchone('''
+                    SELECT COUNT(DISTINCT user_id) as total
+                    FROM chat_logs WHERE guild_id = $1
+                ''', guild_id)
+                
+                # 総トークン数
+                total_tokens = await self._fetchone('''
+                    SELECT COALESCE(SUM(token_count), 0) as total
+                    FROM daily_stats WHERE guild_id = $1
+                ''', guild_id)
+                
+                # 総音楽再生回数
+                total_music = await self._fetchone('''
+                    SELECT COALESCE(SUM(music_count), 0) as total
+                    FROM daily_stats WHERE guild_id = $1
+                ''', guild_id)
+                
+                return {
+                    'total_messages': total_messages['total'] if total_messages else 0,
+                    'total_users': total_users['total'] if total_users else 0,
+                    'total_tokens': total_tokens['total'] if total_tokens else 0,
+                    'total_music': total_music['total'] if total_music else 0
+                }
+            else:
+                return {
+                    'total_messages': 0,
+                    'total_users': 0,
+                    'total_tokens': 0,
+                    'total_music': 0
+                }
+        except Exception as e:
+            logger.error(f'Error getting guild summary: {e}')
+            return {
+                'total_messages': 0,
+                'total_users': 0,
+                'total_tokens': 0,
+                'total_music': 0
+            }

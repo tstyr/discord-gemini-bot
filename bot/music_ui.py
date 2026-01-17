@@ -193,23 +193,33 @@ class MusicPlayerView(View):
     @discord.ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, row=1)
     async def vol_down(self, interaction: discord.Interaction, button: Button):
         """Volume down"""
-        vc = self.get_vc()
-        if vc:
-            new_vol = max(0, vc.volume - 10)
-            await vc.set_volume(new_vol)
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
+        try:
+            vc = self.get_vc()
+            if vc:
+                current_vol = int(vc.volume * 100) if hasattr(vc, 'volume') else 100
+                new_vol = max(0, current_vol - 10)
+                await vc.set_volume(new_vol)
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ ボイスチャンネルに接続していません", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in vol_down: {e}")
             await interaction.response.defer()
     
     @discord.ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, row=1)
     async def vol_up(self, interaction: discord.Interaction, button: Button):
         """Volume up"""
-        vc = self.get_vc()
-        if vc:
-            new_vol = min(100, vc.volume + 10)
-            await vc.set_volume(new_vol)
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
+        try:
+            vc = self.get_vc()
+            if vc:
+                current_vol = int(vc.volume * 100) if hasattr(vc, 'volume') else 100
+                new_vol = min(100, current_vol + 10)
+                await vc.set_volume(new_vol)
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ ボイスチャンネルに接続していません", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in vol_up: {e}")
             await interaction.response.defer()
     
     @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
