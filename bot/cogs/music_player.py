@@ -616,7 +616,12 @@ class PlaybackModeView(discord.ui.View):
     @discord.ui.button(label="Discord VC", style=discord.ButtonStyle.secondary, emoji="📻")
     async def discord_playback(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Play in Discord VC"""
-        await interaction.response.defer()
+        try:
+            # Respond immediately to avoid timeout
+            await interaction.response.defer()
+        except:
+            # If already responded, edit instead
+            pass
         
         try:
             # Get or create music channel
@@ -634,15 +639,24 @@ class PlaybackModeView(discord.ui.View):
                 await vc.play(self.track)
                 queue.current = self.track
                 
-                embed = discord.Embed(
-                    title="📻 Discord VCで再生開始",
-                    description=f"**{self.track.title}**",
-                    color=0xaa66ff
-                )
-                embed.add_field(name="音質", value="64-96kbps (低遅延)", inline=True)
-                embed.add_field(name="チャンネル", value=f"<#{music_channel.id}>", inline=True)
+                # Create player UI with buttons
+                from music_ui import MusicPlayerView
+                view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                embed = view.create_embed()
+                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=False)
                 
-                await interaction.followup.send(embed=embed)
+                try:
+                    player_message = await interaction.followup.send(embed=embed, view=view)
+                    view.message = player_message
+                    await view.start_update_loop()
+                except:
+                    # Fallback without UI
+                    embed = discord.Embed(
+                        title="📻 Discord VCで再生開始",
+                        description=f"**{self.track.title}**",
+                        color=0xaa66ff
+                    )
+                    await interaction.followup.send(embed=embed)
                 
                 # Broadcast to WebSocket
                 if self.music_cog.bot.api_server:
@@ -670,7 +684,10 @@ class PlaybackModeView(discord.ui.View):
                 
         except Exception as e:
             logger.error(f"Error in Discord playback: {e}")
-            await interaction.followup.send("❌ Discord再生でエラーが発生しました。", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Discord再生でエラーが発生しました。", ephemeral=True)
+            except:
+                pass
         
         self.stop()
     
