@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Home, Settings, BarChart3, MessageSquare, Hash, Bot } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const navItems = [
   { icon: Home, label: "ダッシュボード", href: "/dashboard" },
@@ -13,6 +14,8 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const pathname = usePathname();
+
   return (
     <motion.aside
       initial={{ x: -80, opacity: 0 }}
@@ -21,32 +24,49 @@ export function Sidebar() {
       className="fixed left-0 top-0 h-screen w-20 bg-osu-darker/80 backdrop-blur-lg border-r border-white/5 flex flex-col items-center py-6 z-50"
     >
       {/* Logo */}
-      <div className="mb-8">
-        <div className="w-12 h-12 rounded-xl bg-gradient-osu flex items-center justify-center">
-          <Bot className="w-6 h-6 text-white" />
+      <Link href="/dashboard">
+        <div className="mb-8 cursor-pointer group">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-osu-pink to-osu-purple flex items-center justify-center group-hover:shadow-lg group-hover:shadow-osu-pink/50 transition-all">
+            <Bot className="w-6 h-6 text-white" />
+          </div>
         </div>
-      </div>
+      </Link>
 
       {/* Navigation */}
       <nav className="flex-1 flex flex-col gap-2">
-        {navItems.map((item, index) => (
-          <Link key={item.href} href={item.href}>
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white/50 hover:text-osu-pink hover:bg-white/5 transition-all cursor-pointer group relative"
-            >
-              <item.icon className="w-5 h-5" />
-              {/* Tooltip */}
-              <span className="absolute left-16 px-3 py-1 bg-osu-gray rounded-lg text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                {item.label}
-              </span>
-            </motion.div>
-          </Link>
-        ))}
+        {navItems.map((item, index) => {
+          const isActive = pathname === item.href;
+          return (
+            <Link key={item.href} href={item.href}>
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer group relative ${
+                  isActive
+                    ? "text-osu-pink bg-osu-pink/10 shadow-lg shadow-osu-pink/20"
+                    : "text-white/50 hover:text-osu-pink hover:bg-white/5"
+                }`}
+              >
+                <item.icon className="w-5 h-5" />
+                {/* Tooltip */}
+                <span className="absolute left-16 px-3 py-1 bg-osu-gray rounded-lg text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                  {item.label}
+                </span>
+                {/* Active indicator */}
+                {isActive && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute left-0 w-1 h-8 bg-osu-pink rounded-r-full"
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+              </motion.div>
+            </Link>
+          );
+        })}
       </nav>
     </motion.aside>
   );

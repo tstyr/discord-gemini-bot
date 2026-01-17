@@ -25,10 +25,13 @@ const config: Config = {
         'osu-purple': '#aa66ff',
         'osu-card': '#1a1a1a',
         'osu-border': '#333',
+        'osu-gray': '#1a1a1a',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-osu': 'linear-gradient(135deg, #ff66aa 0%, #aa66ff 100%)',
+        'gradient-cyan': 'linear-gradient(135deg, #00ffcc 0%, #0099ff 100%)',
+        'gradient-purple': 'linear-gradient(135deg, #aa66ff 0%, #ff66aa 100%)',
       },
     },
   },

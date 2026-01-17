@@ -1,14 +1,8 @@
 {
+  "version": 2,
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "outputDirectory": ".next",
-  "functions": {
-    "app/api/**/*.ts": {
-      "runtime": "nodejs18.x"
-    }
-  },
+  "buildCommand": "npm run build",
   "rewrites": [
     {
       "source": "/api/:path*",
@@ -34,9 +28,10 @@
       ]
     }
   ],
-  "env": {
-    "NODE_ENV": "production",
-    "NEXT_PUBLIC_API_URL": "https://dying-nana-haklab-3e0dcb62.koyeb.app",
-    "NEXT_PUBLIC_WS_URL": "wss://dying-nana-haklab-3e0dcb62.koyeb.app/ws"
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_API_URL": "@next_public_api_url",
+      "NEXT_PUBLIC_WS_URL": "@next_public_ws_url"
+    }
   }
 }
