@@ -142,6 +142,27 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_hourly_stats_guild_hour 
                 ON hourly_stats(guild_id, hour)
             ''')
+            
+            # Playback history table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS playback_history (
+                    id SERIAL PRIMARY KEY,
+                    guild_id BIGINT NOT NULL,
+                    track_title TEXT NOT NULL,
+                    track_author TEXT,
+                    track_artwork TEXT,
+                    track_uri TEXT,
+                    track_length INTEGER,
+                    requester_id BIGINT,
+                    requester_name TEXT,
+                    played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_playback_history_guild 
+                ON playback_history(guild_id, played_at DESC)
+            ''')
     
     async def _create_tables_sqlite(self):
         """Create SQLite tables (fallback)"""
@@ -732,3 +753,105 @@ class Database:
                 'total_tokens': 0,
                 'total_music': 0
             }
+    
+    async def save_playback_history(self, guild_id: int, track_title: str, track_author: str = None,
+                                   track_artwork: str = None, track_uri: str = None, track_length: int = 0,
+                                   requester_id: int = None, requester_name: str = None):
+        """再生履歴を保存"""
+        try:
+            if self.pool:
+                await self._execute('''
+                    INSERT INTO playback_history 
+                    (guild_id, track_title, track_author, track_artwork, track_uri, track_length, requester_id, requester_name)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ''', guild_id, track_title, track_author, track_artwork, track_uri, track_length, requester_id, requester_name)
+                logger.info(f"✅ Saved playback history: {track_title}")
+        except Exception as e:
+            logger.error(f'Error saving playback history: {e}')
+    
+    async def get_playback_history(self, guild_id: int = None, limit: int = 10):
+        """再生履歴を取得"""
+        try:
+            if self.pool:
+                if guild_id:
+                    rows = await self._fetchall('''
+                        SELECT id, guild_id, track_title, track_author, track_artwork, track_uri, 
+                               track_length, requester_id, requester_name, played_at
+                        FROM playback_history
+                        WHERE guild_id = $1
+                        ORDER BY played_at DESC
+                        LIMIT $2
+                    ''', guild_id, limit)
+                else:
+                    rows = await self._fetchall('''
+                        SELECT id, guild_id, track_title, track_author, track_artwork, track_uri,
+                               track_length, requester_id, requester_name, played_at
+                        FROM playback_history
+                        ORDER BY played_at DESC
+                        LIMIT $1
+                    ''', limit)
+                
+                return [{
+                    'id': str(r['id']),
+                    'guild_id': str(r['guild_id']),
+                    'track_title': r['track_title'],
+                    'track_author': r['track_author'],
+                    'track_artwork': r['track_artwork'],
+                    'track_uri': r['track_uri'],
+                    'track_length': r['track_length'],
+                    'requester_id': str(r['requester_id']) if r['requester_id'] else None,
+                    'requester_name': r['requester_name'],
+                    'played_at': r['played_at'].isoformat() if r['played_at'] else None
+                } for r in rows]
+            else:
+                return []
+        except Exception as e:
+            logger.error(f'Error getting playback history: {e}')
+            return []
+    
+    async def get_global_stats(self):
+        """グローバル統計を取得"""
+        try:
+            if self.pool:
+                # 総メッセージ数
+                total_messages = await self._fetchone('''
+                    SELECT COUNT(*) as total FROM chat_logs
+                ''')
+                
+                # ユニークユーザー数
+                unique_users = await self._fetchone('''
+                    SELECT COUNT(DISTINCT user_id) as total FROM chat_logs
+                ''')
+                
+                # 総トークン数
+                total_tokens = await self._fetchone('''
+                    SELECT COALESCE(SUM(tokens_used), 0) as total FROM chat_logs
+                ''')
+                
+                # 総音楽再生回数
+                total_music = await self._fetchone('''
+                    SELECT COUNT(*) as total FROM playback_history
+                ''')
+                
+                return {
+                    'total_messages': total_messages['total'] if total_messages else 0,
+                    'unique_users': unique_users['total'] if unique_users else 0,
+                    'total_tokens': int(total_tokens['total']) if total_tokens else 0,
+                    'total_music': total_music['total'] if total_music else 0
+                }
+            else:
+                return {
+                    'total_messages': 0,
+                    'unique_users': 0,
+                    'total_tokens': 0,
+                    'total_music': 0
+                }
+        except Exception as e:
+            logger.error(f'Error getting global stats: {e}')
+            return {
+                'total_messages': 0,
+                'unique_users': 0,
+                'total_tokens': 0,
+                'total_music': 0
+            }
+

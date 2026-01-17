@@ -811,6 +811,112 @@ class APIServer:
                 logger.error(f'Error getting AI EQ settings: {e}')
                 raise HTTPException(status_code=500, detail="Failed to get EQ settings")
         
+        @self.app.get("/api/stats")
+        async def get_global_stats():
+            """グローバル統計を取得"""
+            try:
+                stats = await self.bot.database.get_global_stats()
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "servers": len(self.bot.guilds),
+                        "total_messages": stats['total_messages'],
+                        "unique_users": stats['unique_users'],
+                        "total_tokens": stats['total_tokens'],
+                        "total_music": stats['total_music']
+                    }
+                }
+            except Exception as e:
+                logger.error(f'Error getting global stats: {e}')
+                raise HTTPException(status_code=500, detail="Failed to get global stats")
+        
+        @self.app.get("/api/history")
+        async def get_playback_history(guild_id: Optional[int] = None, limit: int = 10):
+            """再生履歴を取得"""
+            try:
+                history = await self.bot.database.get_playback_history(guild_id, limit)
+                
+                return {
+                    "success": True,
+                    "data": history
+                }
+            except Exception as e:
+                logger.error(f'Error getting playback history: {e}')
+                raise HTTPException(status_code=500, detail="Failed to get playback history")
+        
+        @self.app.get("/api/now-playing")
+        async def get_now_playing(guild_id: Optional[int] = None):
+            """現在再生中の曲を取得"""
+            try:
+                # If guild_id is provided, get that guild's status
+                if guild_id:
+                    guild = self.bot.get_guild(guild_id)
+                    if not guild:
+                        raise HTTPException(status_code=404, detail="Guild not found")
+                    
+                    vc = guild.voice_client
+                    if not vc or not vc.playing:
+                        return {
+                            "success": True,
+                            "data": None
+                        }
+                    
+                    music_cog = self.bot.get_cog('MusicPlayer')
+                    queue = music_cog.get_queue(guild_id) if music_cog else None
+                    
+                    if queue and queue.current:
+                        return {
+                            "success": True,
+                            "data": {
+                                "guild_id": str(guild_id),
+                                "guild_name": guild.name,
+                                "track_title": queue.current.title,
+                                "track_author": getattr(queue.current, 'author', 'Unknown'),
+                                "track_artwork": getattr(queue.current, 'artwork', None),
+                                "track_length": queue.current.length,
+                                "position": vc.position,
+                                "paused": vc.paused,
+                                "volume": int(vc.volume / 10)
+                            }
+                        }
+                else:
+                    # Get all guilds' now playing
+                    now_playing = []
+                    music_cog = self.bot.get_cog('MusicPlayer')
+                    
+                    for guild in self.bot.guilds:
+                        vc = guild.voice_client
+                        if vc and vc.playing:
+                            queue = music_cog.get_queue(guild.id) if music_cog else None
+                            if queue and queue.current:
+                                now_playing.append({
+                                    "guild_id": str(guild.id),
+                                    "guild_name": guild.name,
+                                    "track_title": queue.current.title,
+                                    "track_author": getattr(queue.current, 'author', 'Unknown'),
+                                    "track_artwork": getattr(queue.current, 'artwork', None),
+                                    "track_length": queue.current.length,
+                                    "position": vc.position,
+                                    "paused": vc.paused,
+                                    "volume": int(vc.volume / 10)
+                                })
+                    
+                    return {
+                        "success": True,
+                        "data": now_playing
+                    }
+                
+                return {
+                    "success": True,
+                    "data": None
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f'Error getting now playing: {e}')
+                raise HTTPException(status_code=500, detail="Failed to get now playing")
+        
         @self.app.get("/api/guilds/{guild_id}/analytics")
         async def get_guild_analytics(guild_id: int, period: str = "week"):
             """サーバーの分析データを取得"""

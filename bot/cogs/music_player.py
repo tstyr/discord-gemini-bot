@@ -318,6 +318,17 @@ class MusicPlayer(commands.Cog):
                     queue.current = first_track
                     # Analytics tracking
                     await self.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                    # Save playback history
+                    await self.bot.database.save_playback_history(
+                        guild_id=interaction.guild.id,
+                        track_title=first_track.title,
+                        track_author=getattr(first_track, 'author', 'Unknown'),
+                        track_artwork=getattr(first_track, 'artwork', None),
+                        track_uri=first_track.uri,
+                        track_length=first_track.length,
+                        requester_id=interaction.user.id,
+                        requester_name=interaction.user.display_name
+                    )
                 else:
                     queue.add(first_track)
                 
@@ -540,6 +551,17 @@ class MusicPlayer(commands.Cog):
                 queue.current = track
                 # Analytics tracking
                 await self.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                # Save playback history
+                await self.bot.database.save_playback_history(
+                    guild_id=interaction.guild.id,
+                    track_title=track.title,
+                    track_author=getattr(track, 'author', 'Unknown'),
+                    track_artwork=getattr(track, 'artwork', None),
+                    track_uri=track.uri,
+                    track_length=track.length,
+                    requester_id=interaction.user.id,
+                    requester_name=interaction.user.display_name
+                )
                 
                 embed = discord.Embed(
                     title="🤖 AI推薦曲を再生",
@@ -684,6 +706,17 @@ class PlaybackModeView(discord.ui.View):
                 queue.current = self.track
                 # Analytics tracking
                 await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                # Save playback history
+                await self.music_cog.bot.database.save_playback_history(
+                    guild_id=interaction.guild.id,
+                    track_title=self.track.title,
+                    track_author=getattr(self.track, 'author', 'Unknown'),
+                    track_artwork=getattr(self.track, 'artwork', None),
+                    track_uri=self.track.uri,
+                    track_length=self.track.length,
+                    requester_id=interaction.user.id,
+                    requester_name=interaction.user.display_name
+                )
                 
                 # Create player UI with buttons
                 from music_ui import MusicPlayerView
@@ -963,6 +996,17 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 queue.current = track
                 # Analytics tracking
                 await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                # Save playback history
+                await self.music_cog.bot.database.save_playback_history(
+                    guild_id=interaction.guild.id,
+                    track_title=track.title,
+                    track_author=getattr(track, 'author', 'Unknown'),
+                    track_artwork=getattr(track, 'artwork', None),
+                    track_uri=track.uri,
+                    track_length=track.length,
+                    requester_id=interaction.user.id,
+                    requester_name=interaction.user.display_name
+                )
                 
                 # Create player UI
                 from music_ui import MusicPlayerView
