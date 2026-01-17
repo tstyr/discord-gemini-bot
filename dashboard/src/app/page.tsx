@@ -349,13 +349,19 @@ export default function Dashboard() {
     <main className="min-h-screen bg-discord-darker flex">
       {/* 左サイドバー - ユーザーアイコン一覧 */}
       <aside className="w-20 bg-discord-dark flex flex-col items-center py-4 gap-2 border-r border-gray-800">
-        <button
+        <motion.button
           onClick={() => setSelectedUser(null)}
-          className="w-12 h-12 bg-discord-blurple rounded-full flex items-center justify-center mb-4 hover:bg-discord-blurple/80 transition cursor-pointer"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition cursor-pointer ${
+            selectedUser === null 
+              ? "bg-discord-blurple ring-2 ring-white ring-offset-2 ring-offset-discord-dark" 
+              : "bg-discord-blurple hover:bg-discord-blurple/80 hover:rounded-2xl"
+          }`}
           title="ダッシュボードに戻る"
         >
           <Bot className="w-7 h-7 text-white" />
-        </button>
+        </motion.button>
         <div className="w-8 h-0.5 bg-gray-700 rounded mb-2" />
         
         {/* ユーザーアイコン一覧 */}
@@ -711,72 +717,6 @@ export default function Dashboard() {
                   )}
                 </section>
 
-                {/* 音楽プレイヤー - Spotify風 */}
-                <section>
-                  <SpotifyPlayer
-                    track={musicStatus?.connected && musicStatus.current_track ? {
-                      title: musicStatus.current_track.title,
-                      author: musicStatus.current_track.author,
-                      artwork: musicStatus.current_track.artwork,
-                      length: musicStatus.current_track.length,
-                      position: musicStatus.current_track.position || 0,
-                      paused: musicStatus.paused,
-                      volume: musicStatus.volume || 100
-                    } : null}
-                    onControl={controlMusic}
-                  />
-                </section>
-                      
-                      {/* プログレスバー */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs text-gray-400">
-                          <span>{formatDuration(musicStatus.current_track.position || 0)}</span>
-                          <span>{formatDuration(musicStatus.current_track.length)}</span>
-                        </div>
-                        <div className="relative w-full h-2 bg-gray-700 rounded-full overflow-hidden group cursor-pointer">
-                          <motion.div 
-                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
-                            style={{ 
-                              width: `${((musicStatus.current_track.position || 0) / musicStatus.current_track.length) * 100}%` 
-                            }}
-                            animate={{
-                              boxShadow: musicStatus.paused 
-                                ? "0 0 0 rgba(34,197,94,0)" 
-                                : "0 0 20px rgba(34,197,94,0.6)"
-                            }}
-                          />
-                          {/* ホバー時のサムネイル */}
-                          <div className="absolute top-0 right-0 w-1 h-full bg-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                      </div>
-                      
-                      {/* コントロールボタン */}
-                      <div className="flex items-center justify-center gap-4">
-                        <motion.button 
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.95 }}
-                          className="p-3 rounded-full bg-gray-800 hover:bg-gray-700 transition text-gray-300 hover:text-white"
-                        >
-                          <SkipBack className="w-5 h-5" />
-                        </motion.button>
-                        
-                        <motion.button 
-                          onClick={() => controlMusic(musicStatus.paused ? "resume" : "pause")}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          className="p-5 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 transition shadow-lg shadow-green-500/50"
-                        >
-                          {musicStatus.paused ? (
-                            <Play className="w-7 h-7 text-white fill-white" />
-                          ) : (
-                            <Pause className="w-7 h-7 text-white" />
-                          )}
-                        </motion.button>
-                        
-                        <motion.button 
-                          onClick={() => controlMusic("skip")}
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.95 }}
                 {/* 音楽プレイヤー - Spotify風 */}
                 <section>
                   <SpotifyPlayer
