@@ -71,15 +71,86 @@ class APIServer:
         self.app = FastAPI(title="Discord Bot API", version="1.0.0")
         self.connection_manager = ConnectionManager()
         
-        # Skip Socket.IO for now to avoid conflicts
-        # self.sio = socketio.AsyncServer(
-        #     async_mode='asgi',
-        #     cors_allowed_origins=["http://localhost:3000", "http://127.0.0.1:3000"]
-        # )
-        # self.sio_app = socketio.ASGIApp(self.sio, self.app)
+        # Socket.IO setup for real-time logs
+        self.sio = socketio.AsyncServer(
+            async_mode='asgi',
+            cors_allowed_origins="*",
+            logger=False,
+            engineio_logger=False
+        )
+        self.sio_app = socketio.ASGIApp(self.sio, self.app)
+        
+        # Setup Socket.IO events
+        @self.sio.event
+        async def connect(sid, environ):
+            logger.info(f"Socket.IO client connected: {sid}")
+            await self.sio.emit('log_event', {
+                'level': 'INFO',
+                'message': 'Connected to log stream',
+                'timestamp': datetime.now().isoformat()
+            }, room=sid)
+        
+        @self.sio.event
+        async def disconnect(sid):
+            logger.info(f"Socket.IO client disconnected: {sid}")
+        
+        # Setup log handler
+        self.setup_log_handler()
         
         self.setup_routes()
         self.setup_middleware()
+    
+    def setup_log_handler(self):
+        """Setup logging handler to broadcast logs via Socket.IO"""
+        from log_handler import SocketIOLogHandler
+        
+        # Create custom handler
+        self.log_handler = SocketIOLogHandler(self)
+        self.log_handler.setLevel(logging.INFO)
+        
+        # Format
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.log_handler.setFormatter(formatter)
+        
+        # Add to root logger
+        root_logger = logging.getLogger()
+        root_logger.addHandler(self.log_handler)
+        
+        logger.info("✅ Log handler setup complete")
+    
+    async def broadcast_log(self, log_data: dict):
+        """Broadcast log to all connected Socket.IO clients"""
+        try:
+            await self.sio.emit('log_event', log_data)
+        except Exception as e:
+            print(f"Error broadcasting log: {e}")
+        self.setup_middleware()
+    
+    def setup_log_handler(self):
+        """Setup logging handler to emit logs via Socket.IO"""
+        class SocketIOHandler(logging.Handler):
+            def __init__(self, sio):
+                super().__init__()
+                self.sio = sio
+                self.setFormatter(logging.Formatter('%(levelname)s - %(name)s - %(message)s'))
+            
+            def emit(self, record):
+                try:
+                    log_entry = {
+                        'level': record.levelname,
+                        'message': self.format(record),
+                        'timestamp': datetime.fromtimestamp(record.created).isoformat(),
+                        'logger': record.name
+                    }
+                    # Emit to all connected clients
+                    asyncio.create_task(self.sio.emit('log_event', log_entry))
+                except Exception:
+                    self.handleError(record)
+        
+        # Add handler to root logger
+        socket_handler = SocketIOHandler(self.sio)
+        socket_handler.setLevel(logging.INFO)
+        logging.getLogger().addHandler(socket_handler)
     
     def setup_middleware(self):
         """Setup CORS middleware"""
@@ -436,11 +507,11 @@ class APIServer:
             host = os.getenv('API_HOST', '0.0.0.0')
             port = int(os.getenv('API_PORT', 8000))
             
-            logger.info(f"Starting API server on {host}:{port}")
+            logger.info(f"Starting API server with Socket.IO on {host}:{port}")
             
-            # Create server config
+            # Create server config with Socket.IO app
             config = uvicorn.Config(
-                self.app,  # Use FastAPI app directly for now
+                self.sio_app,  # Use Socket.IO wrapped app
                 host=host,
                 port=port,
                 log_level="info"

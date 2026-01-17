@@ -4,10 +4,16 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Bot, MessageSquare, Activity, Music, 
-  Users, Wifi, WifiOff, Play, Pause, SkipForward, 
+  Users, Wifi, WifiOff, Play, Pause, SkipForward, SkipBack,
   Square, Volume2, RefreshCw, Zap, ArrowLeft, Send, BarChart3
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import dynamic from 'next/dynamic';
+
+// Dynamic imports for client-side only components
+const SpotifyPlayer = dynamic(() => import('../components/SpotifyPlayer'), { ssr: false });
+const RealtimeLogs = dynamic(() => import('../components/RealtimeLogs'), { ssr: false });
+const ProBotStats = dynamic(() => import('../components/ProBotStats'), { ssr: false });
 
 interface Guild {
   id: number;
@@ -495,6 +501,16 @@ export default function Dashboard() {
                   </div>
                 </header>
 
+                {/* ProBot風統計セクション */}
+                <ProBotStats
+                  servers={stats.guilds}
+                  maxServers={100}
+                  users={analyticsData?.summary?.total_users || 0}
+                  maxUsers={10000}
+                  messages={stats.messages}
+                  music={analyticsData?.summary?.total_music || 0}
+                />
+
                 {/* 統計カード */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   {[
@@ -695,60 +711,90 @@ export default function Dashboard() {
                   )}
                 </section>
 
-                {/* 音楽プレイヤー */}
-                <section className="bg-discord-dark p-4 rounded-xl">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                      <Music className="w-5 h-5 text-discord-fuchsia" />
-                      音楽プレイヤー
-                    </h2>
-                    {/* デバッグ情報 */}
-                    <div className="text-xs text-gray-500">
-                      {musicStatus ? (
-                        <span>接続: {musicStatus.connected ? '✓' : '✗'} | 再生: {musicStatus.playing ? '✓' : '✗'}</span>
-                      ) : (
-                        <span>ステータス取得中...</span>
-                      )}
-                    </div>
-                  </div>
-                  {musicStatus?.connected && musicStatus.current_track ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        {musicStatus.current_track.artwork && (
-                          <img src={musicStatus.current_track.artwork} alt="" className="w-16 h-16 rounded-lg object-cover" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white font-medium truncate">{musicStatus.current_track.title}</p>
-                          <p className="text-gray-400 text-sm">{musicStatus.current_track.author}</p>
-                          <p className="text-gray-500 text-xs">{formatDuration(musicStatus.current_track.position || 0)} / {formatDuration(musicStatus.current_track.length)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center gap-4">
-                        <button onClick={() => controlMusic(musicStatus.paused ? "resume" : "pause")} className="p-3 bg-discord-blurple rounded-full hover:bg-discord-blurple/80 transition">
-                          {musicStatus.paused ? <Play className="w-6 h-6 text-white" /> : <Pause className="w-6 h-6 text-white" />}
-                        </button>
-                        <button onClick={() => controlMusic("skip")} className="p-2 bg-discord-darker rounded-full hover:bg-gray-700 transition"><SkipForward className="w-5 h-5 text-white" /></button>
-                        <button onClick={() => controlMusic("stop")} className="p-2 bg-discord-darker rounded-full hover:bg-gray-700 transition"><Square className="w-5 h-5 text-white" /></button>
-                        <div className="flex items-center gap-2 ml-4">
-                          <Volume2 className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-400 text-sm">{musicStatus.volume || 100}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : musicStatus?.connected && !musicStatus.current_track ? (
-                    <div className="text-center py-6">
-                      <Music className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                      <p className="text-gray-500">接続済み - 再生待機中</p>
-                      <p className="text-gray-600 text-xs mt-1">Discordで /play コマンドを使用してください</p>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6">
-                      <Music className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                      <p className="text-gray-500">ボイスチャンネルに接続していません</p>
-                      <p className="text-gray-600 text-xs mt-1">Discordで /play コマンドを使用してください</p>
-                    </div>
-                  )}
+                {/* 音楽プレイヤー - Spotify風 */}
+                <section>
+                  <SpotifyPlayer
+                    track={musicStatus?.connected && musicStatus.current_track ? {
+                      title: musicStatus.current_track.title,
+                      author: musicStatus.current_track.author,
+                      artwork: musicStatus.current_track.artwork,
+                      length: musicStatus.current_track.length,
+                      position: musicStatus.current_track.position || 0,
+                      paused: musicStatus.paused,
+                      volume: musicStatus.volume || 100
+                    } : null}
+                    onControl={controlMusic}
+                  />
                 </section>
+                      
+                      {/* プログレスバー */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs text-gray-400">
+                          <span>{formatDuration(musicStatus.current_track.position || 0)}</span>
+                          <span>{formatDuration(musicStatus.current_track.length)}</span>
+                        </div>
+                        <div className="relative w-full h-2 bg-gray-700 rounded-full overflow-hidden group cursor-pointer">
+                          <motion.div 
+                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
+                            style={{ 
+                              width: `${((musicStatus.current_track.position || 0) / musicStatus.current_track.length) * 100}%` 
+                            }}
+                            animate={{
+                              boxShadow: musicStatus.paused 
+                                ? "0 0 0 rgba(34,197,94,0)" 
+                                : "0 0 20px rgba(34,197,94,0.6)"
+                            }}
+                          />
+                          {/* ホバー時のサムネイル */}
+                          <div className="absolute top-0 right-0 w-1 h-full bg-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+                      
+                      {/* コントロールボタン */}
+                      <div className="flex items-center justify-center gap-4">
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="p-3 rounded-full bg-gray-800 hover:bg-gray-700 transition text-gray-300 hover:text-white"
+                        >
+                          <SkipBack className="w-5 h-5" />
+                        </motion.button>
+                        
+                        <motion.button 
+                          onClick={() => controlMusic(musicStatus.paused ? "resume" : "pause")}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="p-5 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 transition shadow-lg shadow-green-500/50"
+                        >
+                          {musicStatus.paused ? (
+                            <Play className="w-7 h-7 text-white fill-white" />
+                          ) : (
+                            <Pause className="w-7 h-7 text-white" />
+                          )}
+                        </motion.button>
+                        
+                        <motion.button 
+                          onClick={() => controlMusic("skip")}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                {/* 音楽プレイヤー - Spotify風 */}
+                <section>
+                  <SpotifyPlayer
+                    track={musicStatus?.connected && musicStatus.current_track ? {
+                      title: musicStatus.current_track.title,
+                      author: musicStatus.current_track.author,
+                      artwork: musicStatus.current_track.artwork,
+                      length: musicStatus.current_track.length,
+                      position: musicStatus.current_track.position || 0,
+                      paused: musicStatus.paused,
+                      volume: musicStatus.volume || 100
+                    } : null}
+                    onControl={controlMusic}
+                  />
+                </section>
+
+                {/* リアルタイムログ */}
+                <RealtimeLogs apiUrl={API_URL} />
 
                 {/* 最近のチャット */}
                 <section className="bg-discord-dark p-4 rounded-xl">
