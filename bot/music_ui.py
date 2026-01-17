@@ -84,9 +84,10 @@ class MusicPlayerView(View):
         loop_icons = {"off": "➡️", "track": "🔂", "queue": "🔁"}
         embed.add_field(name="ループ", value=loop_icons.get(queue.loop_mode, "➡️"), inline=True)
         
-        # Volume
+        # Volume (Wavelinkは0-1000なので10で割る)
         if vc:
-            embed.add_field(name="音量", value=f"🔊 {vc.volume}%", inline=True)
+            volume_percent = int(vc.volume / 10)
+            embed.add_field(name="音量", value=f"🔊 {volume_percent}%", inline=True)
         
         if hasattr(track, 'artwork') and track.artwork:
             embed.set_thumbnail(url=track.artwork)
@@ -196,7 +197,8 @@ class MusicPlayerView(View):
         try:
             vc = self.get_vc()
             if vc:
-                current_vol = int(vc.volume * 100) if hasattr(vc, 'volume') else 100
+                # Wavelinkのvolumeは0-1000の範囲
+                current_vol = vc.volume if hasattr(vc, 'volume') else 100
                 new_vol = max(0, current_vol - 10)
                 await vc.set_volume(new_vol)
                 await interaction.response.edit_message(embed=self.create_embed(), view=self)
@@ -212,8 +214,9 @@ class MusicPlayerView(View):
         try:
             vc = self.get_vc()
             if vc:
-                current_vol = int(vc.volume * 100) if hasattr(vc, 'volume') else 100
-                new_vol = min(100, current_vol + 10)
+                # Wavelinkのvolumeは0-1000の範囲
+                current_vol = vc.volume if hasattr(vc, 'volume') else 100
+                new_vol = min(1000, current_vol + 10)
                 await vc.set_volume(new_vol)
                 await interaction.response.edit_message(embed=self.create_embed(), view=self)
             else:

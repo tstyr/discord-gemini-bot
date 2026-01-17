@@ -613,7 +613,7 @@ class APIServer:
                         "playing": vc.playing,
                         "connected": True,
                         "paused": vc.paused,
-                        "volume": vc.volume,
+                        "volume": int(vc.volume / 10),  # 0-1000を0-100に変換
                         "current_track": current_track,
                         "queue": queue_tracks,
                         "loop_mode": queue.loop_mode if queue else "off"

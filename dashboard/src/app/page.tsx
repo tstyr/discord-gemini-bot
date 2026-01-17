@@ -274,9 +274,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (selectedGuild) {
-      fetch(`${API_URL}/api/guilds/${selectedGuild.id}/music/status`)
-        .then(res => res.ok ? res.json() : null)
-        .then(data => data && setMusicStatus(data.data));
+      // 初回取得
+      const fetchMusic = () => {
+        fetch(`${API_URL}/api/guilds/${selectedGuild.id}/music/status`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => data && setMusicStatus(data.data))
+          .catch(e => console.error('Failed to fetch music status:', e));
+      };
+      
+      fetchMusic();
+      
+      // 5秒ごとに更新
+      const interval = setInterval(fetchMusic, 5000);
+      return () => clearInterval(interval);
     }
   }, [selectedGuild]);
 
@@ -635,7 +645,7 @@ export default function Dashboard() {
                         <button onClick={() => controlMusic("stop")} className="p-2 bg-discord-darker rounded-full"><Square className="w-5 h-5 text-white" /></button>
                         <div className="flex items-center gap-2 ml-4">
                           <Volume2 className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-400 text-sm">{Math.round((musicStatus.volume || 1) * 100)}%</span>
+                          <span className="text-gray-400 text-sm">{musicStatus.volume || 100}%</span>
                         </div>
                       </div>
                     </div>
