@@ -71,6 +71,16 @@ interface UserChatMessage {
   guild_name: string;
 }
 
+interface MusicHistory {
+  id: string;
+  track_title: string;
+  track_author: string;
+  track_artwork: string | null;
+  requester: string;
+  played_at: string;
+  guild_name: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8001/ws";
 
@@ -91,6 +101,13 @@ export default function Dashboard() {
   const [userMessages, setUserMessages] = useState<UserChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // 音楽履歴
+  const [musicHistory, setMusicHistory] = useState<MusicHistory[]>([]);
+  
+  // リアルタイムログ
+  const [realtimeLogs, setRealtimeLogs] = useState<string[]>([]);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   // WebSocket接続
   useEffect(() => {
@@ -119,19 +136,55 @@ export default function Dashboard() {
         setNetworkStats({ latency: Math.round(data.data.latency) });
         break;
       case "music_event":
-        if (data.data.type === "track_start") {
-          setMusicStatus(prev => ({ ...prev!, playing: true, connected: true, current_track: data.data.track }));
-        } else if (data.data.type === "music_stopped" || data.data.type === "queue_empty_disconnect") {
-          setMusicStatus({ playing: false, connected: false, paused: false, volume: 1, current_track: null, queue: [], loop_mode: "off" });
+        const eventData = data.data;
+        if (eventData.type === "track_start") {
+          setMusicStatus(prev => ({ 
+            ...prev!, 
+            playing: true, 
+            connected: true, 
+            current_track: eventData.track 
+          }));
+          
+          // 音楽履歴に追加
+          const historyEntry: MusicHistory = {
+            id: Date.now().toString(),
+            track_title: eventData.track.title,
+            track_author: eventData.track.author,
+            track_artwork: eventData.track.artwork,
+            requester: eventData.requester || 'Unknown',
+            played_at: new Date().toISOString(),
+            guild_name: 'Discord'
+          };
+          setMusicHistory(prev => [historyEntry, ...prev].slice(0, 50));
+          
+          // リアルタイムログに追加
+          addLog(`🎵 再生開始: ${eventData.track.title} - ${eventData.track.author}`);
+        } else if (eventData.type === "music_stopped" || eventData.type === "queue_empty_disconnect") {
+          setMusicStatus({ 
+            playing: false, 
+            connected: false, 
+            paused: false, 
+            volume: 1, 
+            current_track: null, 
+            queue: [], 
+            loop_mode: "off" 
+          });
+          addLog(`⏹️ 音楽停止`);
         }
         break;
       case "new_message":
         setChatLogs(prev => [data.data, ...prev].slice(0, 50));
+        addLog(`💬 ${data.data.username}: ${data.data.user_message.substring(0, 30)}...`);
         // ユーザーリストも更新
         fetchChatUsers();
         break;
     }
   }, []);
+  
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString('ja-JP');
+    setRealtimeLogs(prev => [`[${timestamp}] ${message}`, ...prev].slice(0, 100));
+  };
 
   useEffect(() => { fetchInitialData(); }, []);
 
@@ -208,6 +261,10 @@ export default function Dashboard() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [userMessages]);
+  
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [realtimeLogs]);
 
   useEffect(() => {
     if (selectedGuild) {
@@ -291,7 +348,11 @@ export default function Dashboard() {
             <>
               {/* チャットヘッダー */}
               <header className="h-14 bg-discord-dark border-b border-gray-800 flex items-center px-4 gap-3">
-                <button onClick={() => setSelectedUser(null)} className="p-1 hover:bg-gray-700 rounded lg:hidden">
+                <button 
+                  onClick={() => setSelectedUser(null)} 
+                  className="p-2 hover:bg-gray-700 rounded transition"
+                  title="ダッシュボードに戻る"
+                >
                   <ArrowLeft className="w-5 h-5 text-gray-400" />
                 </button>
                 {selectedUser.avatar ? (
@@ -301,7 +362,7 @@ export default function Dashboard() {
                     {selectedUser.username?.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div>
+                <div className="flex-1">
                   <h2 className="text-white font-semibold">{selectedUser.username}</h2>
                   <p className="text-gray-400 text-xs">{selectedUser.message_count}件のメッセージ • {selectedUser.total_tokens?.toLocaleString()} tokens</p>
                 </div>
@@ -455,13 +516,65 @@ export default function Dashboard() {
                       <div key={log.id || i} className="bg-discord-darker p-3 rounded-lg">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-discord-blurple text-xs font-medium">{log.username}</span>
-                          <span className="text-gray-600 text-xs">{log.tokens_used?.toFixed(0)} tokens</span>
+                          <span className="text-gray-600 text-xs">{formatTime(log.timestamp)}</span>
                         </div>
                         <p className="text-gray-300 text-sm truncate">{log.message}</p>
                         <p className="text-gray-500 text-xs mt-1 truncate">→ {log.response}</p>
                       </div>
                     ))}
                     {chatLogs.length === 0 && <p className="text-gray-500 text-center py-4">チャットログがありません</p>}
+                  </div>
+                </section>
+
+                {/* 音楽履歴 */}
+                <section className="bg-discord-dark p-4 rounded-xl">
+                  <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                    <Music className="w-5 h-5 text-discord-fuchsia" />
+                    音楽履歴
+                  </h2>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {musicHistory.length > 0 ? (
+                      musicHistory.map((track, i) => (
+                        <div key={track.id || i} className="bg-discord-darker p-3 rounded-lg flex items-center gap-3">
+                          {track.track_artwork ? (
+                            <img src={track.track_artwork} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
+                              <Music className="w-6 h-6 text-gray-500" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm font-medium truncate">{track.track_title}</p>
+                            <p className="text-gray-400 text-xs truncate">{track.track_author}</p>
+                            <p className="text-gray-600 text-xs">{track.requester} • {formatTime(track.played_at)}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">音楽履歴がありません</p>
+                    )}
+                  </div>
+                </section>
+
+                {/* リアルタイムログ */}
+                <section className="bg-discord-dark p-4 rounded-xl">
+                  <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-discord-green" />
+                    リアルタイムログ
+                  </h2>
+                  <div className="bg-discord-darker rounded-lg p-3 font-mono text-xs max-h-64 overflow-y-auto">
+                    {realtimeLogs.length > 0 ? (
+                      <>
+                        {realtimeLogs.map((log, i) => (
+                          <div key={i} className="text-gray-300 py-0.5">
+                            {log}
+                          </div>
+                        ))}
+                        <div ref={logsEndRef} />
+                      </>
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">ログがありません</p>
+                    )}
                   </div>
                 </section>
               </div>
