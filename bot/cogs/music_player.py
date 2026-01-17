@@ -221,6 +221,7 @@ class MusicPlayer(commands.Cog):
             tracks = []
             is_playlist = False
             playlist_name = None
+            show_selection = False
             
             # Detect URL type or use specified source
             if SPOTIFY_REGEX.match(query):
@@ -240,21 +241,60 @@ class MusicPlayer(commands.Cog):
                 # Other URL
                 tracks = await wavelink.Playable.search(query)
             else:
-                # Search by source
+                # Search by source - get multiple results for selection
+                show_selection = True
                 if source == "spotify" or (source == "auto" and any(word in query.lower() for word in ['spotify', 'スポティファイ'])):
                     tracks, _, _ = await self.search_spotify(query, search_mode=True)
+                    tracks = tracks[:15] if tracks else []
                 elif source == "soundcloud":
                     tracks = await wavelink.Playable.search(f"scsearch:{query}")
+                    tracks = tracks[:15] if tracks else []
                 else:
-                    # Default: YouTube search
+                    # Default: YouTube search - get 15 results
                     if any(word in query.lower() for word in ['リラックス', '作業', '盛り上がる', 'bgm', 'chill', '高音質']):
                         ai_query = await self.ai_music_recommendation(query)
-                        tracks = await wavelink.Playable.search(f"ytsearch:{ai_query}")
+                        tracks = await wavelink.Playable.search(f"ytsearch15:{ai_query}")
                     else:
-                        tracks = await wavelink.Playable.search(f"ytsearch:{query}")
+                        tracks = await wavelink.Playable.search(f"ytsearch15:{query}")
             
             if not tracks:
                 await interaction.followup.send("❌ 曲が見つかりませんでした。", ephemeral=True)
+                return
+            
+            # Show selection UI if multiple tracks from search
+            if show_selection and len(tracks) > 1:
+                embed = discord.Embed(
+                    title="🎵 曲を選択してください",
+                    description=f"検索: **{query}**\n{len(tracks[:15])}件の結果",
+                    color=0xff0000
+                )
+                
+                # Add thumbnail from first track
+                first_track = tracks[0]
+                if hasattr(first_track, 'artwork') and first_track.artwork:
+                    embed.set_thumbnail(url=first_track.artwork)
+                
+                for i, track in enumerate(tracks[:15], 1):
+                    duration_sec = track.length // 1000
+                    duration_min = duration_sec // 60
+                    duration_sec = duration_sec % 60
+                    author = getattr(track, 'author', 'Unknown')
+                    
+                    # Truncate title and author for better display
+                    title_display = track.title[:40] + '...' if len(track.title) > 40 else track.title
+                    author_display = author[:18] + '...' if len(author) > 18 else author
+                    
+                    embed.add_field(
+                        name=f"{i}. {title_display}",
+                        value=f"⏱️ {duration_min}:{duration_sec:02d} | 📺 {author_display}",
+                        inline=False
+                    )
+                
+                embed.set_footer(text="番号のボタンをクリックして選択 (60秒でタイムアウト)")
+                
+                # Create selection view
+                view = SlashCommandTrackSelectionView(self, interaction, tracks[:15])
+                await interaction.followup.send(embed=embed, view=view)
                 return
             
             # Handle playlist
@@ -819,3 +859,171 @@ async def generate_ai_lyrics(self, title: str, artist: str) -> Optional[List[str
 # Add these methods to the MusicPlayer class
 MusicPlayer.get_high_quality_stream = get_high_quality_stream
 MusicPlayer.generate_ai_lyrics = generate_ai_lyrics
+
+
+class SlashCommandTrackSelectionView(discord.ui.View):
+    """View for selecting a track from slash command search results"""
+    def __init__(self, music_cog, interaction, tracks):
+        super().__init__(timeout=60)
+        self.music_cog = music_cog
+        self.interaction = interaction
+        self.tracks = tracks
+        
+        # Add buttons for each track (max 15, arranged in rows of 5)
+        num_tracks = min(15, len(tracks))
+        for i in range(num_tracks):
+            button = discord.ui.Button(
+                label=str(i + 1),
+                style=discord.ButtonStyle.primary,
+                custom_id=f"track_{i}",
+                row=i // 5  # 5 buttons per row
+            )
+            button.callback = self.create_callback(i)
+            self.add_item(button)
+        
+        # Add cancel button in the last row
+        cancel_btn = discord.ui.Button(
+            label="キャンセル",
+            style=discord.ButtonStyle.danger,
+            custom_id="cancel",
+            row=4  # Always in the last row
+        )
+        cancel_btn.callback = self.cancel_callback
+        self.add_item(cancel_btn)
+    
+    def create_callback(self, index):
+        async def callback(interaction: discord.Interaction):
+            try:
+                await interaction.response.defer()
+            except:
+                pass
+            await self.play_selected(interaction, index)
+        return callback
+    
+    async def cancel_callback(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer()
+        except:
+            pass
+        
+        embed = discord.Embed(
+            title="❌ キャンセルしました",
+            color=0xff4444
+        )
+        try:
+            await interaction.edit_original_response(embed=embed, view=None)
+        except:
+            await interaction.followup.send(embed=embed)
+        self.stop()
+    
+    async def play_selected(self, interaction: discord.Interaction, index: int):
+        """Play the selected track"""
+        try:
+            import wavelink
+            
+            track = self.tracks[index]
+            
+            # Disable all buttons
+            for item in self.children:
+                item.disabled = True
+            
+            # Update embed to show loading
+            embed = discord.Embed(
+                title="🎵 読み込み中...",
+                description=f"**{track.title}**",
+                color=0xffaa00
+            )
+            try:
+                await interaction.edit_original_response(embed=embed, view=self)
+            except:
+                pass
+            
+            # Create or get music channel
+            music_channel = await self.music_cog.create_music_channel(
+                interaction.guild, 
+                interaction.user
+            )
+            
+            # Connect to voice channel
+            if not interaction.guild.voice_client:
+                vc = await music_channel.connect(cls=wavelink.Player)
+            else:
+                vc = interaction.guild.voice_client
+            
+            queue = self.music_cog.get_queue(interaction.guild.id)
+            
+            if not vc.playing:
+                await vc.play(track)
+                queue.current = track
+                
+                # Create player UI
+                from music_ui import MusicPlayerView
+                view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                embed = view.create_embed()
+                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=False)
+                
+                try:
+                    await interaction.edit_original_response(embed=embed, view=view)
+                    view.message = await interaction.original_response()
+                    await view.start_update_loop()
+                except Exception as e:
+                    logger.error(f"Error creating player UI: {e}")
+                    # Fallback without UI
+                    embed = discord.Embed(
+                        title="🎵 再生開始",
+                        description=f"**{track.title}**",
+                        color=0xaa66ff
+                    )
+                    await interaction.edit_original_response(embed=embed, view=None)
+                
+                # Broadcast to WebSocket
+                if self.music_cog.bot.api_server:
+                    await self.music_cog.bot.api_server.broadcast_music_event({
+                        'type': 'track_start',
+                        'guild_id': interaction.guild.id,
+                        'track': {
+                            'title': track.title,
+                            'author': getattr(track, 'author', 'Unknown'),
+                            'length': track.length,
+                            'artwork': getattr(track, 'artwork', None),
+                            'uri': track.uri
+                        },
+                        'requester': interaction.user.display_name
+                    })
+            else:
+                queue.add(track)
+                embed = discord.Embed(
+                    title="📝 キューに追加しました",
+                    description=f"**{track.title}**",
+                    color=0x00ffcc
+                )
+                embed.add_field(name="キュー位置", value=f"{len(queue.queue)}番目", inline=True)
+                await interaction.edit_original_response(embed=embed, view=None)
+            
+        except Exception as e:
+            logger.error(f"Error playing selected track: {e}")
+            import traceback
+            traceback.print_exc()
+            embed = discord.Embed(
+                title="❌ エラーが発生しました",
+                description=str(e),
+                color=0xff4444
+            )
+            try:
+                await interaction.edit_original_response(embed=embed, view=None)
+            except:
+                await interaction.followup.send(embed=embed)
+        
+        self.stop()
+    
+    async def on_timeout(self):
+        """Handle timeout"""
+        embed = discord.Embed(
+            title="⏰ タイムアウトしました",
+            description="選択時間が過ぎました。もう一度お試しください。",
+            color=0xff9900
+        )
+        try:
+            await self.interaction.edit_original_response(embed=embed, view=None)
+        except:
+            pass

@@ -373,32 +373,42 @@ class DiscordBot(commands.Bot):
                     source_type = "youtube"
                     
                     try:
-                        # Use wavelink ytsearch to get multiple results
-                        search_tracks = await wavelink.Playable.search(f"ytsearch5:{recommendation_query}")
+                        # Use wavelink ytsearch to get multiple results (15 tracks)
+                        search_tracks = await wavelink.Playable.search(f"ytsearch15:{recommendation_query}")
                         
                         if search_tracks and len(search_tracks) > 1:
                             # Show selection UI with multiple results
                             embed = discord.Embed(
                                 title="🎵 曲を選択してください",
-                                description=f"検索: **{recommendation_query}**",
+                                description=f"検索: **{recommendation_query}**\n{len(search_tracks[:15])}件の結果",
                                 color=0xff0000
                             )
                             
-                            for i, track in enumerate(search_tracks[:5], 1):
+                            # Add thumbnail from first track
+                            first_track = search_tracks[0]
+                            if hasattr(first_track, 'artwork') and first_track.artwork:
+                                embed.set_thumbnail(url=first_track.artwork)
+                            
+                            for i, track in enumerate(search_tracks[:15], 1):
                                 duration_sec = track.length // 1000
                                 duration_min = duration_sec // 60
                                 duration_sec = duration_sec % 60
                                 author = getattr(track, 'author', 'Unknown')
+                                
+                                # Truncate title and author for better display
+                                title_display = track.title[:40] + '...' if len(track.title) > 40 else track.title
+                                author_display = author[:18] + '...' if len(author) > 18 else author
+                                
                                 embed.add_field(
-                                    name=f"{i}. {track.title[:45]}{'...' if len(track.title) > 45 else ''}",
-                                    value=f"⏱️ {duration_min}:{duration_sec:02d} | 📺 {author[:20]}",
+                                    name=f"{i}. {title_display}",
+                                    value=f"⏱️ {duration_min}:{duration_sec:02d} | 📺 {author_display}",
                                     inline=False
                                 )
                             
                             embed.set_footer(text="番号のボタンをクリックして選択 (60秒でタイムアウト)")
                             
-                            # Create selection view with wavelink tracks
-                            view = WavelinkTrackSelectionView(self, message, search_tracks[:5], music_cog)
+                            # Create selection view with wavelink tracks (up to 15)
+                            view = WavelinkTrackSelectionView(self, message, search_tracks[:15], music_cog)
                             selection_msg = await message.reply(embed=embed, view=view)
                             view.message = selection_msg
                             return True
@@ -808,21 +818,24 @@ class WavelinkTrackSelectionView(discord.ui.View):
         self.music_cog = music_cog
         self.message = None
         
-        # Add buttons for each track (max 5)
-        for i in range(min(5, len(tracks))):
+        # Add buttons for each track (max 15, arranged in rows of 5)
+        num_tracks = min(15, len(tracks))
+        for i in range(num_tracks):
             button = discord.ui.Button(
                 label=str(i + 1),
                 style=discord.ButtonStyle.primary,
-                custom_id=f"track_{i}"
+                custom_id=f"track_{i}",
+                row=i // 5  # 5 buttons per row
             )
             button.callback = self.create_callback(i)
             self.add_item(button)
         
-        # Add cancel button
+        # Add cancel button in the last row
         cancel_btn = discord.ui.Button(
             label="キャンセル",
             style=discord.ButtonStyle.danger,
-            custom_id="cancel"
+            custom_id="cancel",
+            row=4  # Always in the last row
         )
         cancel_btn.callback = self.cancel_callback
         self.add_item(cancel_btn)
