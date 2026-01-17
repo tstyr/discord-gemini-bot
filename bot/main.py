@@ -20,6 +20,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Check critical environment variables on startup
+def check_critical_env():
+    """Check critical environment variables"""
+    missing = []
+    
+    if not os.getenv('DISCORD_TOKEN'):
+        missing.append('DISCORD_TOKEN')
+    if not os.getenv('GEMINI_API_KEY'):
+        missing.append('GEMINI_API_KEY')
+    if not os.getenv('DATABASE_URL'):
+        missing.append('DATABASE_URL')
+    
+    if missing:
+        logger.error("=" * 60)
+        logger.error("❌ 必須環境変数が不足しています:")
+        for var in missing:
+            logger.error(f"   - {var}")
+        logger.error("")
+        logger.error("📝 設定方法:")
+        logger.error("   1. .envファイルに環境変数を追加")
+        logger.error("   2. またはKoyeb/Vercelのダッシュボードで設定")
+        logger.error("")
+        logger.error("詳細: KOYEB_VERCEL_DEPLOYMENT_FIX.md を参照")
+        logger.error("=" * 60)
+        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+    
+    # Check Lavalink settings (warning only)
+    lavalink_vars = ['LAVALINK_HOST', 'LAVALINK_PORT', 'LAVALINK_PASSWORD']
+    missing_lavalink = [var for var in lavalink_vars if not os.getenv(var)]
+    
+    if missing_lavalink:
+        logger.warning("=" * 60)
+        logger.warning("⚠️  音楽機能の環境変数が不足しています:")
+        for var in missing_lavalink:
+            logger.warning(f"   - {var}")
+        logger.warning("")
+        logger.warning("音楽を再生するには以下を設定してください:")
+        logger.warning("   LAVALINK_HOST=lavalinkv4.serenetia.com")
+        logger.warning("   LAVALINK_PORT=443")
+        logger.warning("   LAVALINK_PASSWORD=https://dsc.gg/ajidevserver")
+        logger.warning("   LAVALINK_SECURE=true")
+        logger.warning("=" * 60)
+    else:
+        logger.info("✅ すべての環境変数が設定されています")
+
 class DiscordBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -692,6 +737,13 @@ async def run_api_server_standalone():
 
 async def main():
     """Main function to run the bot with retry logic"""
+    # Check critical environment variables first
+    try:
+        check_critical_env()
+    except ValueError as e:
+        logger.error(f"Environment check failed: {e}")
+        return
+    
     bot = DiscordBot()
     max_retries = 10
     retry_delay = 5  # seconds

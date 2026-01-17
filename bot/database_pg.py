@@ -17,16 +17,31 @@ class Database:
         """Initialize database connection pool and tables"""
         if self.database_url:
             # PostgreSQL (Supabase/Railway)
-            self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=10)
-            await self._create_tables_pg()
-            logger.info("PostgreSQL database initialized")
+            try:
+                logger.info(f"🔌 Connecting to PostgreSQL database...")
+                self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=10)
+                await self._create_tables_pg()
+                logger.info("✅ PostgreSQL database initialized successfully")
+                
+                # Test connection
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchval('SELECT 1')
+                    logger.info(f"✅ Database connection test: {result}")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize PostgreSQL: {e}")
+                logger.warning("⚠️  Falling back to SQLite...")
+                self.pool = None
+                import aiosqlite
+                self.db_path = os.getenv('DATABASE_PATH', 'bot.db')
+                await self._create_tables_sqlite()
+                logger.info("✅ SQLite database initialized (fallback)")
         else:
-            logger.warning("DATABASE_URL not set, using SQLite fallback")
+            logger.warning("⚠️  DATABASE_URL not set, using SQLite fallback")
             # Fallback to SQLite
             import aiosqlite
             self.db_path = os.getenv('DATABASE_PATH', 'bot.db')
             await self._create_tables_sqlite()
-            logger.info("SQLite database initialized")
+            logger.info("✅ SQLite database initialized")
     
     async def _create_tables_pg(self):
         """Create PostgreSQL tables"""
@@ -299,6 +314,8 @@ class Database:
                            channel_name: str, guild_name: str, tokens_used: float,
                            ai_mode: str, response_time: float):
         try:
+            logger.info(f"💾 Saving chat log for {username} (user_id: {user_id})")
+            
             if self.pool:
                 await self._execute('''
                     INSERT INTO chat_logs (user_id, guild_id, channel_id, user_message, ai_response,
@@ -306,6 +323,7 @@ class Database:
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ''', user_id, guild_id, channel_id, user_message, ai_response,
                      username, channel_name, guild_name, tokens_used, ai_mode, response_time)
+                logger.info(f"✅ Chat log saved to PostgreSQL for {username}")
             else:
                 await self._execute('''
                     INSERT INTO chat_logs (user_id, guild_id, channel_id, user_message, ai_response,
@@ -313,9 +331,11 @@ class Database:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', user_id, guild_id, channel_id, user_message, ai_response,
                      username, channel_name, guild_name, tokens_used, ai_mode, response_time)
-            logger.info(f"Saved chat log for {username}")
+                logger.info(f"✅ Chat log saved to SQLite for {username}")
         except Exception as e:
-            logger.error(f'Error saving chat log: {e}')
+            logger.error(f'❌ Error saving chat log for {username}: {e}')
+            import traceback
+            traceback.print_exc()
     
     async def get_chat_logs(self, guild_id: Optional[int] = None, limit: int = 50) -> List[Dict]:
         try:

@@ -15,6 +15,16 @@ definition:
       value: "0.0.0.0"
     - key: API_PORT
       value: "8000"
+    # 以下の環境変数をKoyebダッシュボードで設定してください:
+    # DISCORD_TOKEN - Discordボットトークン
+    # GEMINI_API_KEY - Gemini APIキー（必須！）
+    # DATABASE_URL - PostgreSQL接続URL
+    # LAVALINK_HOST - lavalinkv4.serenetia.com
+    # LAVALINK_PORT - 443
+    # LAVALINK_PASSWORD - https://dsc.gg/ajidevserver
+    # LAVALINK_SECURE - true
+    # SPOTIFY_CLIENT_ID - (オプション)
+    # SPOTIFY_CLIENT_SECRET - (オプション)
   regions:
     - fra
   instance_types:

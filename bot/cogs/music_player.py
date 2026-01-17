@@ -58,12 +58,27 @@ class MusicPlayer(commands.Cog):
     async def cog_load(self):
         """Initialize Wavelink when cog loads"""
         try:
-            # Connect to Lavalink server (using external hosted server)
-            nodes = [wavelink.Node(uri="https://lavalinkv4.serenetia.com:443", password="https://dsc.gg/ajidevserver")]
+            import os
+            
+            # Get Lavalink settings from environment variables
+            lavalink_host = os.getenv('LAVALINK_HOST', 'lavalinkv4.serenetia.com')
+            lavalink_port = os.getenv('LAVALINK_PORT', '443')
+            lavalink_password = os.getenv('LAVALINK_PASSWORD', 'https://dsc.gg/ajidevserver')
+            lavalink_secure = os.getenv('LAVALINK_SECURE', 'true').lower() == 'true'
+            
+            # Build URI
+            protocol = 'https' if lavalink_secure else 'http'
+            uri = f"{protocol}://{lavalink_host}:{lavalink_port}"
+            
+            logger.info(f"Connecting to Lavalink: {uri}")
+            
+            # Connect to Lavalink server
+            nodes = [wavelink.Node(uri=uri, password=lavalink_password)]
             await wavelink.Pool.connect(nodes=nodes, client=self.bot)
-            logger.info("Connected to Lavalink server")
+            logger.info("✅ Connected to Lavalink server successfully")
         except Exception as e:
-            logger.error(f"Failed to connect to Lavalink: {e}")
+            logger.error(f"❌ Failed to connect to Lavalink: {e}")
+            logger.warning("音楽機能は利用できません。環境変数を確認してください。")
     
     def get_queue(self, guild_id: int) -> MusicQueue:
         """Get or create music queue for guild"""
