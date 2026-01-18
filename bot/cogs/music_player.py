@@ -80,6 +80,88 @@ class MusicPlayer(commands.Cog):
             logger.error(f"❌ Failed to connect to Lavalink: {e}")
             logger.warning("音楽機能は利用できません。環境変数を確認してください。")
     
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
+        """Track started - update Supabase active_sessions"""
+        try:
+            player = payload.player
+            track = payload.track
+            
+            if player and player.guild:
+                # Count voice channel members
+                voice_channel = player.channel
+                members_count = len(voice_channel.members) - 1 if voice_channel else 0  # Exclude bot
+                
+                track_data = {
+                    'title': track.title,
+                    'author': getattr(track, 'author', 'Unknown'),
+                    'duration': track.length,
+                    'position': player.position,
+                    'is_playing': True,
+                    'members_count': members_count
+                }
+                
+                await self.bot.supabase_client.update_active_session(
+                    player.guild.id,
+                    track_data
+                )
+                
+                logger.info(f"📊 Updated active session for guild {player.guild.id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to update active session on track start: {e}")
+    
+    @commands.Cog.listener()
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
+        """Track ended - clear or update Supabase active_sessions"""
+        try:
+            player = payload.player
+            
+            if player and player.guild:
+                queue = self.get_queue(player.guild.id)
+                
+                # If no more tracks, clear session
+                if not queue.queue and not player.playing:
+                    await self.bot.supabase_client.update_active_session(
+                        player.guild.id,
+                        None
+                    )
+                    logger.info(f"📊 Cleared active session for guild {player.guild.id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to update active session on track end: {e}")
+    
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        """Voice state changed - update member count in active_sessions"""
+        try:
+            # Check if bot is playing in this guild
+            if member.guild.voice_client and member.guild.voice_client.playing:
+                player = member.guild.voice_client
+                voice_channel = player.channel
+                
+                if voice_channel and (before.channel == voice_channel or after.channel == voice_channel):
+                    # Member joined or left the music channel
+                    members_count = len(voice_channel.members) - 1  # Exclude bot
+                    
+                    queue = self.get_queue(member.guild.id)
+                    if queue.current:
+                        track_data = {
+                            'title': queue.current.title,
+                            'author': getattr(queue.current, 'author', 'Unknown'),
+                            'duration': queue.current.length,
+                            'position': player.position,
+                            'is_playing': player.playing,
+                            'members_count': members_count
+                        }
+                        
+                        await self.bot.supabase_client.update_active_session(
+                            member.guild.id,
+                            track_data
+                        )
+                        
+                        logger.debug(f"📊 Updated member count for guild {member.guild.id}: {members_count}")
+        except Exception as e:
+            logger.error(f"❌ Failed to update active session on voice state: {e}")
+    
     def get_queue(self, guild_id: int) -> MusicQueue:
         """Get or create music queue for guild"""
         if guild_id not in self.music_queues:

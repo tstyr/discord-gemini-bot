@@ -14,3 +14,5 @@ python-socketio>=5.10.0
 colorama>=0.4.6
 youtube-search-python>=1.6.6
 yt-dlp>=2023.12.30
+supabase>=2.0.0
+psutil>=5.9.0

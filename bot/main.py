@@ -9,6 +9,8 @@ from discord.ext import commands
 from gemini_client import GeminiClient
 from database_pg import Database
 from api_server import APIServer
+from supabase_client import SupabaseClient
+from supabase_log_handler import SupabaseLogHandler
 
 # Load environment variables
 load_dotenv()
@@ -79,12 +81,28 @@ class DiscordBot(commands.Bot):
         
         self.gemini_client = GeminiClient()
         self.database = Database()
+        self.supabase_client = SupabaseClient(self)
         self.api_server = None
         self.start_time = time.time()  # Track bot start time
+        self.is_maintenance = False  # Maintenance mode flag
         
     async def setup_hook(self):
         """Called when the bot is starting up"""
         await self.database.initialize()
+        
+        # Initialize Supabase client
+        supabase_initialized = await self.supabase_client.initialize()
+        
+        # Setup Supabase log handler if initialized
+        if supabase_initialized:
+            log_handler = SupabaseLogHandler(self.supabase_client)
+            log_handler.setLevel(logging.INFO)
+            log_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logging.getLogger().addHandler(log_handler)
+            
+            # Start log flush loop
+            asyncio.create_task(log_handler.start_flush_loop())
+            logger.info("✅ Supabase log handler initialized")
         
         # Load cogs
         await self.load_extension('cogs.ai_commands')
@@ -772,6 +790,16 @@ async def main():
     # Start a minimal API server first to satisfy Render's port binding
     api_task = None
     
+    # Setup signal handlers for graceful shutdown
+    import signal
+    
+    def signal_handler(sig, frame):
+        logger.info("🔄 Received shutdown signal, cleaning up...")
+        asyncio.create_task(shutdown(bot))
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     for attempt in range(max_retries):
         try:
             logger.info(f"Starting bot (attempt {attempt + 1}/{max_retries})...")
@@ -779,6 +807,7 @@ async def main():
             break  # If successful, exit loop
         except KeyboardInterrupt:
             logger.info('Bot shutdown requested')
+            await shutdown(bot)
             break
         except OSError as e:
             if "Network is unreachable" in str(e) or e.errno == 101:
@@ -810,7 +839,32 @@ async def main():
     if api_task and not api_task.done():
         api_task.cancel()
     
+    await shutdown(bot)
+
+
+async def shutdown(bot):
+    """Graceful shutdown"""
+    logger.info("🔄 Starting graceful shutdown...")
+    
+    # Stop music in all guilds
+    for guild in bot.guilds:
+        if guild.voice_client:
+            try:
+                music_cog = bot.get_cog('MusicPlayer')
+                if music_cog:
+                    queue = music_cog.get_queue(guild.id)
+                    queue.clear()
+                await guild.voice_client.disconnect()
+            except:
+                pass
+    
+    # Shutdown Supabase client
+    await bot.supabase_client.shutdown()
+    
+    # Close bot
     await bot.close()
+    
+    logger.info("✅ Shutdown complete")
 
 
 class WavelinkTrackSelectionView(discord.ui.View):
