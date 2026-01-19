@@ -249,6 +249,11 @@ class DiscordBot(commands.Bot):
                     # Send response
                     await message.reply(response)
                     
+                    # トークン数を推定（実際のAPIレスポンスから取得する場合は修正）
+                    prompt_tokens = len(message.content.split()) * 1.3
+                    completion_tokens = len(response.split()) * 1.3
+                    total_tokens = prompt_tokens + completion_tokens
+                    
                     # Save to Supabase conversation_logs (エラーハンドリング付き)
                     try:
                         await self.supabase_client.save_conversation_log(
@@ -256,6 +261,16 @@ class DiscordBot(commands.Bot):
                             user_name=message.author.display_name,
                             prompt=message.content,
                             response=response
+                        )
+                        
+                        # Gemini使用ログを記録
+                        await self.supabase_client.log_gemini_usage(
+                            guild_id=message.guild.id,
+                            user_id=message.author.id,
+                            prompt_tokens=int(prompt_tokens),
+                            completion_tokens=int(completion_tokens),
+                            total_tokens=int(total_tokens),
+                            model="gemini-pro"
                         )
                     except Exception as e:
                         logger.error(f"Failed to save conversation log to Supabase: {e}")
@@ -513,11 +528,35 @@ class DiscordBot(commands.Bot):
                     
                     # Save to Supabase music_logs (エラーハンドリング付き)
                     try:
+                        # 簡易版
                         await self.supabase_client.save_music_log(
                             guild_id=message.guild.id,
                             song_title=track.title,
                             requested_by=message.author.display_name,
                             requested_by_id=message.author.id
+                        )
+                        
+                        # 詳細版（music_history）
+                        await self.supabase_client.log_music_play(
+                            guild_id=message.guild.id,
+                            track_title=track.title,
+                            track_url=track.uri if hasattr(track, 'uri') else '',
+                            duration_ms=track.length if hasattr(track, 'length') else 0,
+                            requested_by=message.author.display_name,
+                            requested_by_id=message.author.id
+                        )
+                        
+                        # アクティブセッション更新
+                        await self.supabase_client.update_active_session(
+                            guild_id=message.guild.id,
+                            track_data={
+                                'title': track.title,
+                                'author': getattr(track, 'author', 'Unknown'),
+                                'duration': track.length if hasattr(track, 'length') else 0,
+                                'position': 0,
+                                'is_playing': True,
+                                'members_count': len(vc.channel.members) - 1 if vc.channel else 0
+                            }
                         )
                     except Exception as log_err:
                         logger.error(f"Failed to save music log to Supabase: {log_err}")

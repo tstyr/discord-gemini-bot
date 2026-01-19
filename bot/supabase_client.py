@@ -379,20 +379,68 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"❌ Failed to update active session: {e}")
     
-    async def log_to_supabase(self, level: str, message: str, scope: str = 'general'):
-        """ログをSupabaseに送信"""
+    async def log_gemini_usage(self, guild_id: int, user_id: int, prompt_tokens: int, 
+                              completion_tokens: int, total_tokens: int, model: str = "gemini-pro"):
+        """Gemini API使用ログをSupabaseに記録"""
         if not self.client:
             return
         
         try:
-            self.client.table('bot_logs').insert({
-                'level': level,
-                'message': message,
-                'scope': scope,
-                'created_at': datetime.utcnow().isoformat()
-            }).execute()
+            data = {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "model": model,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            self.client.table("gemini_usage").insert(data).execute()
+            logger.debug(f"📊 Gemini usage logged: {total_tokens} tokens")
+            
         except Exception as e:
-            logger.error(f"❌ Failed to log to Supabase: {e}")
+            logger.error(f"❌ Failed to log Gemini usage: {e}")
+    
+    async def log_music_play(self, guild_id: int, track_title: str, track_url: str,
+                            duration_ms: int, requested_by: str, requested_by_id: int):
+        """音楽再生ログをSupabaseに記録（詳細版）"""
+        if not self.client:
+            return
+        
+        try:
+            data = {
+                "guild_id": str(guild_id),
+                "track_title": track_title,
+                "track_url": track_url,
+                "duration_ms": duration_ms,
+                "requested_by": requested_by,
+                "requested_by_id": str(requested_by_id),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            self.client.table("music_history").insert(data).execute()
+            logger.debug(f"🎵 Music play logged: {track_title}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to log music play: {e}")
+    
+    async def log_bot_event(self, level: str, message: str):
+        """BotイベントログをSupabaseに送信"""
+        if not self.client:
+            return
+        
+        try:
+            data = {
+                "level": level,  # "INFO", "WARNING", "ERROR"
+                "message": message,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            self.client.table("bot_logs").insert(data).execute()
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to log bot event: {e}")
     
     async def save_conversation_log(self, user_id: int, user_name: str, prompt: str, response: str):
         """会話ログをSupabaseに保存"""

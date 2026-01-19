@@ -54,6 +54,41 @@ CREATE TABLE IF NOT EXISTS music_logs (
 CREATE INDEX IF NOT EXISTS idx_music_logs_guild_id ON music_logs(guild_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_music_logs_timestamp ON music_logs(timestamp DESC);
 
+-- 4. 音楽再生履歴テーブル（詳細版）
+CREATE TABLE IF NOT EXISTS music_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    track_title TEXT NOT NULL,
+    track_url TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    requested_by TEXT NOT NULL,
+    requested_by_id TEXT NOT NULL,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_music_history_guild_id ON music_history(guild_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_music_history_timestamp ON music_history(timestamp DESC);
+
+-- 5. Gemini使用ログテーブル
+CREATE TABLE IF NOT EXISTS gemini_usage (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    model TEXT DEFAULT 'gemini-pro',
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_guild_id ON gemini_usage(guild_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_user_id ON gemini_usage(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_timestamp ON gemini_usage(timestamp DESC);
+
 -- 4. コマンドキューテーブル（Realtime対応）
 CREATE TABLE IF NOT EXISTS command_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -123,6 +158,8 @@ BEGIN
     DELETE FROM job_logs WHERE created_at < NOW() - INTERVAL '30 days';
     DELETE FROM conversation_logs WHERE created_at < NOW() - INTERVAL '90 days';
     DELETE FROM music_logs WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM music_history WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM gemini_usage WHERE created_at < NOW() - INTERVAL '90 days';
     -- システム統計は7日以上前を削除（データ量が多いため）
     DELETE FROM system_stats WHERE created_at < NOW() - INTERVAL '7 days';
 END;
@@ -135,6 +172,8 @@ $$ LANGUAGE plpgsql;
 ALTER TABLE system_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE music_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE music_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gemini_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE command_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE active_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_logs ENABLE ROW LEVEL SECURITY;
@@ -144,6 +183,8 @@ ALTER TABLE bot_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow authenticated read access" ON system_stats FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON conversation_logs FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON music_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON music_history FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON gemini_usage FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON command_queue FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON active_sessions FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON job_logs FOR SELECT TO authenticated USING (true);
@@ -153,6 +194,8 @@ CREATE POLICY "Allow authenticated read access" ON bot_logs FOR SELECT TO authen
 CREATE POLICY "Allow service role full access" ON system_stats FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON conversation_logs FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON music_logs FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON music_history FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON gemini_usage FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON command_queue FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON active_sessions FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON job_logs FOR ALL TO service_role USING (true);
