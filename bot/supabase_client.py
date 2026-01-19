@@ -76,16 +76,16 @@ class SupabaseClient:
             logger.warning(f"⚠️  active_sessions table check failed: {e}")
     
     async def _health_monitor_loop(self):
-        """5秒ごとにシステムメトリクスを送信"""
+        """10秒ごとにシステムメトリクスを送信"""
         logger.info("🔄 Health monitor started")
         
         while self.is_running:
             try:
                 await self._send_system_stats()
-                await asyncio.sleep(5)
+                await asyncio.sleep(10)  # 10秒間隔に変更
             except Exception as e:
                 logger.error(f"❌ Health monitor error: {e}")
-                await asyncio.sleep(5)
+                await asyncio.sleep(10)
     
     async def _send_system_stats(self):
         """システム統計をSupabaseに送信"""
@@ -96,7 +96,11 @@ class SupabaseClient:
             # CPU使用率
             cpu_usage = psutil.cpu_percent(interval=0.1)
             
-            # メモリ使用量
+            # RAM使用率（システム全体）
+            ram = psutil.virtual_memory()
+            ram_usage = ram.percent
+            
+            # メモリ使用量（プロセス）
             process = psutil.Process()
             memory_info = process.memory_info()
             memory_rss = memory_info.rss / 1024 / 1024  # MB
@@ -116,30 +120,33 @@ class SupabaseClient:
             except:
                 pass
             
-            # ギルド数
-            guild_count = len(self.bot.guilds)
+            # サーバー数（ギルド数）
+            server_count = len(self.bot.guilds)
             
             # 稼働時間
             uptime = int(time.time() - self.bot.start_time)
             
             stats = {
                 'cpu_usage': cpu_usage,
+                'ram_usage': ram_usage,
                 'memory_rss': memory_rss,
                 'memory_heap': memory_heap,
                 'ping_gateway': ping_gateway,
                 'ping_lavalink': ping_lavalink,
-                'guild_count': guild_count,
+                'server_count': server_count,
+                'guild_count': server_count,  # 互換性のため
                 'uptime': uptime,
+                'timestamp': datetime.utcnow().isoformat(),
                 'updated_at': datetime.utcnow().isoformat()
             }
             
-            # UPSERTでデータを更新（bot_idが主キーと仮定）
-            self.client.table('system_stats').upsert({
+            # INSERTでデータを追加（履歴として保存）
+            self.client.table('system_stats').insert({
                 'bot_id': 'primary',
                 **stats
             }).execute()
             
-            logger.debug(f"📊 System stats sent: CPU={cpu_usage}%, Memory={memory_rss:.1f}MB, Guilds={guild_count}")
+            logger.debug(f"📊 System stats sent: CPU={cpu_usage}%, RAM={ram_usage}%, Servers={server_count}")
             
         except Exception as e:
             logger.error(f"❌ Failed to send system stats: {e}")
@@ -383,6 +390,40 @@ class SupabaseClient:
             }).execute()
         except Exception as e:
             logger.error(f"❌ Failed to log to Supabase: {e}")
+    
+    async def save_conversation_log(self, user_id: int, user_name: str, prompt: str, response: str):
+        """会話ログをSupabaseに保存"""
+        if not self.client:
+            return
+        
+        try:
+            self.client.table('conversation_logs').insert({
+                'user_id': str(user_id),
+                'user_name': user_name,
+                'prompt': prompt,
+                'response': response,
+                'timestamp': datetime.utcnow().isoformat()
+            }).execute()
+            logger.debug(f"💬 Conversation log saved for {user_name}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save conversation log: {e}")
+    
+    async def save_music_log(self, guild_id: int, song_title: str, requested_by: str, requested_by_id: int):
+        """音楽ログをSupabaseに保存"""
+        if not self.client:
+            return
+        
+        try:
+            self.client.table('music_logs').insert({
+                'guild_id': str(guild_id),
+                'song_title': song_title,
+                'requested_by': requested_by,
+                'requested_by_id': str(requested_by_id),
+                'timestamp': datetime.utcnow().isoformat()
+            }).execute()
+            logger.debug(f"🎵 Music log saved: {song_title} by {requested_by}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save music log: {e}")
     
     async def shutdown(self):
         """シャットダウン処理"""

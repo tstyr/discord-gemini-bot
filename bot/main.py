@@ -249,6 +249,14 @@ class DiscordBot(commands.Bot):
                     # Send response
                     await message.reply(response)
                     
+                    # Save to Supabase conversation_logs
+                    await self.supabase_client.save_conversation_log(
+                        user_id=message.author.id,
+                        user_name=message.author.display_name,
+                        prompt=message.content,
+                        response=response
+                    )
+                    
                     # Save detailed chat log
                     await self.database.save_chat_log(
                         user_id=message.author.id,
@@ -499,6 +507,14 @@ class DiscordBot(commands.Bot):
                     await vc.play(track)
                     queue.current = track
                     logger.info(f"Started playing: {track.title}")
+                    
+                    # Save to Supabase music_logs
+                    await self.supabase_client.save_music_log(
+                        guild_id=message.guild.id,
+                        song_title=track.title,
+                        requested_by=message.author.display_name,
+                        requested_by_id=message.author.id
+                    )
                 except Exception as play_err:
                     logger.error(f"Failed to play track: {play_err}")
                     await message.reply(f"❌ 曲の再生に失敗しました: {str(play_err)}")
@@ -950,6 +966,14 @@ class WavelinkTrackSelectionView(discord.ui.View):
             if not vc.playing:
                 await vc.play(track)
                 queue.current = track
+                
+                # Save to Supabase music_logs
+                await self.bot.supabase_client.save_music_log(
+                    guild_id=self.original_message.guild.id,
+                    song_title=track.title,
+                    requested_by=self.original_message.author.display_name,
+                    requested_by_id=self.original_message.author.id
+                )
                 
                 # Create player UI
                 from music_ui import MusicPlayerView
