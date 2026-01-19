@@ -249,13 +249,16 @@ class DiscordBot(commands.Bot):
                     # Send response
                     await message.reply(response)
                     
-                    # Save to Supabase conversation_logs
-                    await self.supabase_client.save_conversation_log(
-                        user_id=message.author.id,
-                        user_name=message.author.display_name,
-                        prompt=message.content,
-                        response=response
-                    )
+                    # Save to Supabase conversation_logs (エラーハンドリング付き)
+                    try:
+                        await self.supabase_client.save_conversation_log(
+                            user_id=message.author.id,
+                            user_name=message.author.display_name,
+                            prompt=message.content,
+                            response=response
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to save conversation log to Supabase: {e}")
                     
                     # Save detailed chat log
                     await self.database.save_chat_log(
@@ -508,13 +511,16 @@ class DiscordBot(commands.Bot):
                     queue.current = track
                     logger.info(f"Started playing: {track.title}")
                     
-                    # Save to Supabase music_logs
-                    await self.supabase_client.save_music_log(
-                        guild_id=message.guild.id,
-                        song_title=track.title,
-                        requested_by=message.author.display_name,
-                        requested_by_id=message.author.id
-                    )
+                    # Save to Supabase music_logs (エラーハンドリング付き)
+                    try:
+                        await self.supabase_client.save_music_log(
+                            guild_id=message.guild.id,
+                            song_title=track.title,
+                            requested_by=message.author.display_name,
+                            requested_by_id=message.author.id
+                        )
+                    except Exception as log_err:
+                        logger.error(f"Failed to save music log to Supabase: {log_err}")
                 except Exception as play_err:
                     logger.error(f"Failed to play track: {play_err}")
                     await message.reply(f"❌ 曲の再生に失敗しました: {str(play_err)}")
@@ -967,13 +973,16 @@ class WavelinkTrackSelectionView(discord.ui.View):
                 await vc.play(track)
                 queue.current = track
                 
-                # Save to Supabase music_logs
-                await self.bot.supabase_client.save_music_log(
-                    guild_id=self.original_message.guild.id,
-                    song_title=track.title,
-                    requested_by=self.original_message.author.display_name,
-                    requested_by_id=self.original_message.author.id
-                )
+                # Save to Supabase music_logs (エラーハンドリング付き)
+                try:
+                    await self.bot.supabase_client.save_music_log(
+                        guild_id=self.original_message.guild.id,
+                        song_title=track.title,
+                        requested_by=self.original_message.author.display_name,
+                        requested_by_id=self.original_message.author.id
+                    )
+                except Exception as log_err:
+                    logger.error(f"Failed to save music log to Supabase: {log_err}")
                 
                 # Create player UI
                 from music_ui import MusicPlayerView

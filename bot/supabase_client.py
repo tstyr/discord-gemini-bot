@@ -6,6 +6,7 @@ import psutil
 import time
 from datetime import datetime
 from typing import Dict, Optional, Any
+from discord.ext import tasks
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -22,7 +23,6 @@ class SupabaseClient:
         self.supabase_key = os.getenv('SUPABASE_KEY')
         self.client: Optional[Client] = None
         self.realtime_channel = None
-        self.health_monitor_task = None
         self.is_running = False
         
     async def initialize(self):
@@ -41,9 +41,10 @@ class SupabaseClient:
             # Realtime監視を開始
             await self.start_realtime_listener()
             
-            # ヘルスモニターを開始
+            # tasks.loopでヘルスモニターを開始
             self.is_running = True
-            self.health_monitor_task = asyncio.create_task(self._health_monitor_loop())
+            if not self.health_monitor_loop.is_running():
+                self.health_monitor_loop.start()
             
             logger.info("✅ Supabase integration fully initialized")
             return True
@@ -75,21 +76,23 @@ class SupabaseClient:
         except Exception as e:
             logger.warning(f"⚠️  active_sessions table check failed: {e}")
     
-    async def _health_monitor_loop(self):
-        """10秒ごとにシステムメトリクスを送信"""
-        logger.info("🔄 Health monitor started")
-        
-        while self.is_running:
-            try:
-                await self._send_system_stats()
-                await asyncio.sleep(10)  # 10秒間隔に変更
-            except Exception as e:
-                logger.error(f"❌ Health monitor error: {e}")
-                await asyncio.sleep(10)
+    @tasks.loop(seconds=10)
+    async def health_monitor_loop(self):
+        """10秒ごとにシステムメトリクスを送信（tasks.loop使用）"""
+        try:
+            await self._send_system_stats()
+        except Exception as e:
+            logger.error(f"❌ Health monitor error: {e}")
+    
+    @health_monitor_loop.before_loop
+    async def before_health_monitor(self):
+        """ヘルスモニター開始前の待機"""
+        await self.bot.wait_until_ready()
+        logger.info("🔄 Health monitor started (10s interval)")
     
     async def _send_system_stats(self):
         """システム統計をSupabaseに送信"""
-        if not self.client:
+        if not self.client or not self.is_running:
             return
         
         try:
@@ -430,18 +433,23 @@ class SupabaseClient:
         logger.info("🔄 Shutting down Supabase client...")
         self.is_running = False
         
-        if self.health_monitor_task:
-            self.health_monitor_task.cancel()
+        # tasks.loopを停止
+        if self.health_monitor_loop.is_running():
+            self.health_monitor_loop.cancel()
         
         # オフライン状態を記録
         if self.client:
             try:
-                self.client.table('system_stats').upsert({
+                self.client.table('system_stats').insert({
                     'bot_id': 'primary',
                     'status': 'offline',
+                    'cpu_usage': 0,
+                    'ram_usage': 0,
+                    'server_count': 0,
+                    'timestamp': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }).execute()
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to record offline status: {e}")
         
         logger.info("✅ Supabase client shutdown complete")
