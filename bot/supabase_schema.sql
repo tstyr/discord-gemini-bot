@@ -15,14 +15,14 @@ CREATE TABLE IF NOT EXISTS system_stats (
     guild_count INTEGER DEFAULT 0,
     uptime INTEGER DEFAULT 0,
     status TEXT DEFAULT 'online',
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_system_stats_timestamp ON system_stats(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_system_stats_bot_id ON system_stats(bot_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_system_stats_recorded_at ON system_stats(recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_stats_bot_id ON system_stats(bot_id, recorded_at DESC);
 
 -- 2. 会話ログテーブル
 CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -31,13 +31,13 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     user_name TEXT NOT NULL,
     prompt TEXT NOT NULL,
     response TEXT NOT NULL,
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_conversation_logs_user_id ON conversation_logs(user_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_conversation_logs_timestamp ON conversation_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_logs_user_id ON conversation_logs(user_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_logs_recorded_at ON conversation_logs(recorded_at DESC);
 
 -- 3. 音楽ログテーブル
 CREATE TABLE IF NOT EXISTS music_logs (
@@ -46,13 +46,13 @@ CREATE TABLE IF NOT EXISTS music_logs (
     song_title TEXT NOT NULL,
     requested_by TEXT NOT NULL,
     requested_by_id TEXT NOT NULL,
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_music_logs_guild_id ON music_logs(guild_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_music_logs_timestamp ON music_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_music_logs_guild_id ON music_logs(guild_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_music_logs_recorded_at ON music_logs(recorded_at DESC);
 
 -- 4. 音楽再生履歴テーブル（詳細版）
 CREATE TABLE IF NOT EXISTS music_history (
@@ -63,13 +63,13 @@ CREATE TABLE IF NOT EXISTS music_history (
     duration_ms INTEGER DEFAULT 0,
     requested_by TEXT NOT NULL,
     requested_by_id TEXT NOT NULL,
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_music_history_guild_id ON music_history(guild_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_music_history_timestamp ON music_history(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_music_history_guild_id ON music_history(guild_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_music_history_recorded_at ON music_history(recorded_at DESC);
 
 -- 5. Gemini使用ログテーブル
 CREATE TABLE IF NOT EXISTS gemini_usage (
@@ -80,16 +80,16 @@ CREATE TABLE IF NOT EXISTS gemini_usage (
     completion_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
     model TEXT DEFAULT 'gemini-pro',
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_gemini_usage_guild_id ON gemini_usage(guild_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_gemini_usage_user_id ON gemini_usage(user_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_gemini_usage_timestamp ON gemini_usage(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_guild_id ON gemini_usage(guild_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_user_id ON gemini_usage(user_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_usage_recorded_at ON gemini_usage(recorded_at DESC);
 
--- 4. コマンドキューテーブル（Realtime対応）
+-- 6. コマンドキューテーブル（Realtime対応）
 CREATE TABLE IF NOT EXISTS command_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     command_type TEXT NOT NULL,
@@ -102,13 +102,10 @@ CREATE TABLE IF NOT EXISTS command_queue (
     completed_at TIMESTAMPTZ
 );
 
--- Realtimeを有効化
-ALTER PUBLICATION supabase_realtime ADD TABLE command_queue;
-
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_command_queue_status ON command_queue(status, created_at);
 
--- 5. アクティブセッションテーブル
+-- 7. アクティブセッションテーブル
 CREATE TABLE IF NOT EXISTS active_sessions (
     guild_id TEXT PRIMARY KEY,
     track_title TEXT,
@@ -120,7 +117,7 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. ジョブログテーブル
+-- 8. ジョブログテーブル
 CREATE TABLE IF NOT EXISTS job_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     command_id UUID REFERENCES command_queue(id),
@@ -135,7 +132,7 @@ CREATE TABLE IF NOT EXISTS job_logs (
 CREATE INDEX IF NOT EXISTS idx_job_logs_command_id ON job_logs(command_id);
 CREATE INDEX IF NOT EXISTS idx_job_logs_created_at ON job_logs(created_at DESC);
 
--- 7. Botログテーブル
+-- 9. Botログテーブル
 CREATE TABLE IF NOT EXISTS bot_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     level TEXT NOT NULL CHECK (level IN ('debug', 'info', 'warning', 'error', 'critical')),

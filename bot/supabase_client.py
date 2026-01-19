@@ -139,7 +139,7 @@ class SupabaseClient:
                 'server_count': server_count,
                 'guild_count': server_count,  # 互換性のため
                 'uptime': uptime,
-                'timestamp': datetime.utcnow().isoformat(),
+                'recorded_at': datetime.utcnow().isoformat(),
                 'updated_at': datetime.utcnow().isoformat()
             }
             
@@ -393,7 +393,7 @@ class SupabaseClient:
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
                 "model": model,
-                "timestamp": datetime.utcnow().isoformat()
+                "recorded_at": datetime.utcnow().isoformat()
             }
             
             self.client.table("gemini_usage").insert(data).execute()
@@ -416,7 +416,7 @@ class SupabaseClient:
                 "duration_ms": duration_ms,
                 "requested_by": requested_by,
                 "requested_by_id": str(requested_by_id),
-                "timestamp": datetime.utcnow().isoformat()
+                "recorded_at": datetime.utcnow().isoformat()
             }
             
             self.client.table("music_history").insert(data).execute()
@@ -434,7 +434,7 @@ class SupabaseClient:
             data = {
                 "level": level,  # "INFO", "WARNING", "ERROR"
                 "message": message,
-                "timestamp": datetime.utcnow().isoformat()
+                "recorded_at": datetime.utcnow().isoformat()
             }
             
             self.client.table("bot_logs").insert(data).execute()
@@ -453,7 +453,7 @@ class SupabaseClient:
                 'user_name': user_name,
                 'prompt': prompt,
                 'response': response,
-                'timestamp': datetime.utcnow().isoformat()
+                'recorded_at': datetime.utcnow().isoformat()
             }).execute()
             logger.debug(f"💬 Conversation log saved for {user_name}")
         except Exception as e:
@@ -470,7 +470,7 @@ class SupabaseClient:
                 'song_title': song_title,
                 'requested_by': requested_by,
                 'requested_by_id': str(requested_by_id),
-                'timestamp': datetime.utcnow().isoformat()
+                'recorded_at': datetime.utcnow().isoformat()
             }).execute()
             logger.debug(f"🎵 Music log saved: {song_title} by {requested_by}")
         except Exception as e:
@@ -494,7 +494,7 @@ class SupabaseClient:
                     'cpu_usage': 0,
                     'ram_usage': 0,
                     'server_count': 0,
-                    'timestamp': datetime.utcnow().isoformat(),
+                    'recorded_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }).execute()
             except Exception as e:
