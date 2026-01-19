@@ -99,57 +99,39 @@ class SupabaseClient:
             # CPU使用率
             cpu_usage = psutil.cpu_percent(interval=0.1)
             
-            # RAM使用率（システム全体）
-            ram = psutil.virtual_memory()
-            ram_usage = ram.percent
-            
             # メモリ使用量（プロセス）
             process = psutil.Process()
             memory_info = process.memory_info()
-            memory_rss = memory_info.rss / 1024 / 1024  # MB
-            memory_heap = memory_info.vms / 1024 / 1024  # MB
+            ram_rss = memory_info.rss / 1024 / 1024  # MB
+            ram_heap = memory_info.vms / 1024 / 1024  # MB
             
             # Discord Gateway Ping
-            ping_gateway = round(self.bot.latency * 1000, 2)  # ms
+            ping_gateway = round(self.bot.latency * 1000)  # ms
             
             # Lavalink Ping (音楽機能がある場合)
-            ping_lavalink = 0
+            ping_lavalink = None
             try:
                 if hasattr(self.bot, 'wavelink') and self.bot.wavelink:
                     # Wavelinkのノード情報を取得
                     nodes = self.bot.wavelink.nodes
                     if nodes:
-                        ping_lavalink = round(nodes[0].latency * 1000, 2)
+                        ping_lavalink = round(nodes[0].latency * 1000)
             except:
                 pass
             
-            # サーバー数（ギルド数）
-            server_count = len(self.bot.guilds)
-            
-            # 稼働時間
-            uptime = int(time.time() - self.bot.start_time)
-            
+            # ✅ 正しいスキーマに合わせたデータ
             stats = {
-                'cpu_usage': cpu_usage,
-                'ram_usage': ram_usage,
-                'memory_rss': memory_rss,
-                'memory_heap': memory_heap,
-                'ping_gateway': ping_gateway,
-                'ping_lavalink': ping_lavalink,
-                'server_count': server_count,
-                'guild_count': server_count,  # 互換性のため
-                'uptime': uptime,
-                'recorded_at': datetime.utcnow().isoformat(),
-                'updated_at': datetime.utcnow().isoformat()
+                'cpu_usage': float(cpu_usage),
+                'ram_rss': float(ram_rss),
+                'ram_heap': float(ram_heap),
+                'ping_gateway': int(ping_gateway),
+                'ping_lavalink': int(ping_lavalink) if ping_lavalink else None
             }
             
-            # INSERTでデータを追加（履歴として保存）
-            self.client.table('system_stats').insert({
-                'bot_id': 'primary',
-                **stats
-            }).execute()
+            # INSERTでデータを追加（created_atは自動）
+            self.client.table('system_stats').insert(stats).execute()
             
-            logger.debug(f"📊 System stats sent: CPU={cpu_usage}%, RAM={ram_usage}%, Servers={server_count}")
+            logger.debug(f"📊 System stats sent: CPU={cpu_usage:.1f}%, RAM={ram_rss:.1f}MB")
             
         except Exception as e:
             logger.error(f"❌ Failed to send system stats: {e}")
@@ -198,89 +180,78 @@ class SupabaseClient:
     async def _process_command(self, command: Dict[str, Any]):
         """コマンドを処理"""
         command_id = command['id']
-        command_type = command['command_type']
+        command_name = command['command']  # ✅ 正しいカラム名
         payload = command.get('payload', {})
         
-        logger.info(f"📥 Processing command: {command_type} (ID: {command_id})")
+        logger.info(f"📥 Processing command: {command_name} (ID: {command_id})")
         
         try:
             # コマンドを処理中に更新
             self.client.table('command_queue').update({
-                'status': 'processing',
-                'updated_at': datetime.utcnow().isoformat()
+                'status': 'processing'
             }).eq('id', command_id).execute()
             
             result = None
             error = None
             
-            # コマンドタイプに応じて処理
-            if command_type == 'MUSIC_PLAY':
-                result = await self._handle_music_play(payload)
-            elif command_type == 'MUSIC_SKIP':
+            # コマンド名に応じて処理
+            if command_name == 'pause':
+                result = await self._handle_music_pause(payload)
+            elif command_name == 'resume':
+                result = await self._handle_music_resume(payload)
+            elif command_name == 'skip':
                 result = await self._handle_music_skip(payload)
-            elif command_type == 'MUSIC_STOP':
+            elif command_name == 'stop':
                 result = await self._handle_music_stop(payload)
-            elif command_type == 'MUSIC_VOLUME':
+            elif command_name == 'volume':
                 result = await self._handle_music_volume(payload)
-            elif command_type == 'MUSIC_SEEK':
+            elif command_name == 'seek':
                 result = await self._handle_music_seek(payload)
-            elif command_type == 'SYS_MAINTENANCE':
-                result = await self._handle_maintenance(payload)
             else:
-                error = f"Unknown command type: {command_type}"
+                error = f"Unknown command: {command_name}"
             
             # 完了状態に更新
             self.client.table('command_queue').update({
-                'status': 'completed' if not error else 'failed',
-                'result': result,
-                'error': error,
-                'completed_at': datetime.utcnow().isoformat()
+                'status': 'completed' if not error else 'failed'
             }).eq('id', command_id).execute()
             
-            # ジョブログに記録
-            self.client.table('job_logs').insert({
-                'command_id': command_id,
-                'command_type': command_type,
-                'status': 'completed' if not error else 'failed',
-                'result': result,
-                'error': error,
-                'created_at': datetime.utcnow().isoformat()
-            }).execute()
-            
-            logger.info(f"✅ Command completed: {command_type}")
+            logger.info(f"✅ Command completed: {command_name}")
             
         except Exception as e:
             logger.error(f"❌ Command processing failed: {e}")
             
             # 失敗状態に更新
             self.client.table('command_queue').update({
-                'status': 'failed',
-                'error': str(e),
-                'completed_at': datetime.utcnow().isoformat()
+                'status': 'failed'
             }).eq('id', command_id).execute()
     
-    async def _handle_music_play(self, payload: Dict) -> str:
-        """音楽再生コマンド"""
-        url = payload.get('url')
+    async def _handle_music_pause(self, payload: Dict) -> str:
+        """一時停止コマンド"""
         guild_id = payload.get('guild_id')
         
-        if not url or not guild_id:
-            raise ValueError("Missing url or guild_id")
+        if not guild_id:
+            raise ValueError("Missing guild_id")
         
-        # 音楽Cogを取得
-        music_cog = self.bot.get_cog('MusicPlayer')
-        if not music_cog:
-            raise ValueError("Music player not available")
-        
-        # ギルドを取得
         guild = self.bot.get_guild(int(guild_id))
-        if not guild:
-            raise ValueError(f"Guild not found: {guild_id}")
+        if not guild or not guild.voice_client:
+            raise ValueError("Not playing music")
         
-        # 音楽を再生（実装は既存のロジックを使用）
-        # TODO: 実際の再生ロジックを実装
+        await guild.voice_client.pause()
+        return "Paused"
+    
+    async def _handle_music_resume(self, payload: Dict) -> str:
+        """再開コマンド"""
+        guild_id = payload.get('guild_id')
         
-        return f"Playing: {url}"
+        if not guild_id:
+            raise ValueError("Missing guild_id")
+        
+        guild = self.bot.get_guild(int(guild_id))
+        if not guild or not guild.voice_client:
+            raise ValueError("Not playing music")
+        
+        await guild.voice_client.resume()
+        return "Resumed"
     
     async def _handle_music_skip(self, payload: Dict) -> str:
         """スキップコマンド"""
@@ -345,15 +316,6 @@ class SupabaseClient:
         await guild.voice_client.seek(position)
         return f"Seeked to {position}ms"
     
-    async def _handle_maintenance(self, payload: Dict) -> str:
-        """メンテナンスモード切り替え"""
-        enabled = payload.get('enabled', False)
-        
-        # グローバル変数でメンテナンスモードを管理
-        self.bot.is_maintenance = enabled
-        
-        return f"Maintenance mode: {'enabled' if enabled else 'disabled'}"
-    
     async def update_active_session(self, guild_id: int, track_data: Optional[Dict] = None):
         """アクティブセッション情報を更新"""
         if not self.client:
@@ -361,14 +323,13 @@ class SupabaseClient:
         
         try:
             if track_data:
+                # ✅ 正しいスキーマに合わせたデータ
                 session_data = {
                     'guild_id': str(guild_id),
                     'track_title': track_data.get('title'),
-                    'position_ms': track_data.get('position', 0),
-                    'duration_ms': track_data.get('duration', 0),
-                    'is_playing': track_data.get('is_playing', False),
-                    'voice_members_count': track_data.get('members_count', 0),
-                    'updated_at': datetime.utcnow().isoformat()
+                    'position_ms': int(track_data.get('position', 0)),
+                    'duration_ms': int(track_data.get('duration', 0)),
+                    'is_playing': bool(track_data.get('is_playing', False))
                 }
                 
                 self.client.table('active_sessions').upsert(session_data).execute()
@@ -386,14 +347,14 @@ class SupabaseClient:
             return
         
         try:
+            # ✅ 正しいスキーマに合わせたデータ
             data = {
                 "guild_id": str(guild_id),
                 "user_id": str(user_id),
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-                "model": model,
-                "recorded_at": datetime.utcnow().isoformat()
+                "prompt_tokens": int(prompt_tokens),
+                "completion_tokens": int(completion_tokens),
+                "total_tokens": int(total_tokens),
+                "model": str(model)
             }
             
             self.client.table("gemini_usage").insert(data).execute()
@@ -404,19 +365,18 @@ class SupabaseClient:
     
     async def log_music_play(self, guild_id: int, track_title: str, track_url: str,
                             duration_ms: int, requested_by: str, requested_by_id: int):
-        """音楽再生ログをSupabaseに記録（詳細版）"""
+        """音楽再生ログをSupabaseに記録"""
         if not self.client:
             return
         
         try:
+            # ✅ 正しいスキーマに合わせたデータ
             data = {
                 "guild_id": str(guild_id),
-                "track_title": track_title,
-                "track_url": track_url,
-                "duration_ms": duration_ms,
-                "requested_by": requested_by,
-                "requested_by_id": str(requested_by_id),
-                "recorded_at": datetime.utcnow().isoformat()
+                "track_title": str(track_title),
+                "track_url": str(track_url),
+                "duration_ms": int(duration_ms),
+                "requested_by": str(requested_by)
             }
             
             self.client.table("music_history").insert(data).execute()
@@ -431,10 +391,10 @@ class SupabaseClient:
             return
         
         try:
+            # ✅ 正しいスキーマ: level, message のみ（created_atは自動）
             data = {
-                "level": level,  # "INFO", "WARNING", "ERROR"
-                "message": message,
-                "recorded_at": datetime.utcnow().isoformat()
+                "level": str(level).upper(),  # "INFO", "WARNING", "ERROR"
+                "message": str(message)
             }
             
             self.client.table("bot_logs").insert(data).execute()
@@ -485,18 +445,10 @@ class SupabaseClient:
         if self.health_monitor_loop.is_running():
             self.health_monitor_loop.cancel()
         
-        # オフライン状態を記録
+        # オフライン状態をログに記録
         if self.client:
             try:
-                self.client.table('system_stats').insert({
-                    'bot_id': 'primary',
-                    'status': 'offline',
-                    'cpu_usage': 0,
-                    'ram_usage': 0,
-                    'server_count': 0,
-                    'recorded_at': datetime.utcnow().isoformat(),
-                    'updated_at': datetime.utcnow().isoformat()
-                }).execute()
+                await self.log_bot_event("INFO", "Bot shutting down")
             except Exception as e:
                 logger.error(f"Failed to record offline status: {e}")
         
