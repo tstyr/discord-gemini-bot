@@ -170,6 +170,39 @@ CREATE INDEX idx_bot_logs_level ON bot_logs(level, created_at DESC);
 CREATE INDEX idx_bot_logs_scope ON bot_logs(scope, created_at DESC);
 CREATE INDEX idx_bot_logs_created_at ON bot_logs(created_at DESC);
 
+-- 10. プレイリストテーブル
+CREATE TABLE playlists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    creator_id TEXT NOT NULL,
+    creator_name TEXT NOT NULL,
+    is_public BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_playlists_guild_id ON playlists(guild_id, created_at DESC);
+CREATE INDEX idx_playlists_creator_id ON playlists(creator_id);
+
+-- 11. プレイリスト曲テーブル
+CREATE TABLE playlist_tracks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_title TEXT NOT NULL,
+    track_url TEXT NOT NULL,
+    track_author TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    added_by TEXT NOT NULL,
+    added_by_id TEXT NOT NULL,
+    position INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id, position);
+CREATE INDEX idx_playlist_tracks_added_by ON playlist_tracks(added_by_id);
+
 -- 古いログを自動削除する関数
 CREATE OR REPLACE FUNCTION delete_old_logs()
 RETURNS void AS $$
@@ -194,6 +227,8 @@ ALTER TABLE command_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE active_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE playlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE playlist_tracks ENABLE ROW LEVEL SECURITY;
 
 -- 読み取り専用ポリシー（認証済みユーザー）
 CREATE POLICY "Allow authenticated read access" ON system_stats FOR SELECT TO authenticated USING (true);
@@ -205,6 +240,8 @@ CREATE POLICY "Allow authenticated read access" ON command_queue FOR SELECT TO a
 CREATE POLICY "Allow authenticated read access" ON active_sessions FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON job_logs FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Allow authenticated read access" ON bot_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON playlists FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON playlist_tracks FOR SELECT TO authenticated USING (true);
 
 -- Bot用の書き込みポリシー（service_roleキーを使用）
 CREATE POLICY "Allow service role full access" ON system_stats FOR ALL TO service_role USING (true);
@@ -216,9 +253,11 @@ CREATE POLICY "Allow service role full access" ON command_queue FOR ALL TO servi
 CREATE POLICY "Allow service role full access" ON active_sessions FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON job_logs FOR ALL TO service_role USING (true);
 CREATE POLICY "Allow service role full access" ON bot_logs FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON playlists FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON playlist_tracks FOR ALL TO service_role USING (true);
 
 -- ダッシュボード用のコマンド挿入ポリシー
 CREATE POLICY "Allow authenticated insert commands" ON command_queue FOR INSERT TO authenticated WITH CHECK (true);
 
 -- 完了メッセージ
-SELECT 'Supabase schema created successfully! 9 tables created.' AS status;
+SELECT 'Supabase schema created successfully! 11 tables created.' AS status;

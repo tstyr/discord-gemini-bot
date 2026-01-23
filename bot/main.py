@@ -112,7 +112,8 @@ class DiscordBot(commands.Bot):
         # Try to load music player (optional, requires Lavalink)
         try:
             await self.load_extension('cogs.music_player')
-            logger.info("Music player loaded successfully")
+            await self.load_extension('cogs.playlist_manager')  # ✅ プレイリスト管理を追加
+            logger.info("Music player and playlist manager loaded successfully")
         except Exception as e:
             logger.warning(f"Music player not loaded (Lavalink may not be running): {e}")
         
@@ -422,8 +423,12 @@ class DiscordBot(commands.Bot):
                     source_type = "youtube"
                     
                     try:
+                        # ✅ 検索精度向上: ytsearchプレフィックスを強制
+                        search_query = f"ytsearch15:{recommendation_query}"
+                        logger.info(f"Searching YouTube with query: {search_query}")
+                        
                         # Use wavelink ytsearch to get multiple results (15 tracks)
-                        search_tracks = await wavelink.Playable.search(f"ytsearch15:{recommendation_query}")
+                        search_tracks = await wavelink.Playable.search(search_query)
                         
                         if search_tracks and len(search_tracks) > 1:
                             # Show selection UI with multiple results
@@ -464,8 +469,11 @@ class DiscordBot(commands.Bot):
                         elif search_tracks:
                             # Only one result, use it directly
                             tracks = search_tracks
+                            logger.info(f"Found {len(tracks)} track(s)")
                     except Exception as e:
-                        logger.error(f"Wavelink ytsearch failed: {e}")
+                        logger.error(f"❌ Wavelink ytsearch failed: {e}")
+                        import traceback
+                        traceback.print_exc()
             
             if not tracks or len(tracks) == 0:
                 await message.reply(f"❌ 曲が見つかりませんでした。別のキーワードで試してみてください。")
@@ -519,6 +527,12 @@ class DiscordBot(commands.Bot):
             track = tracks[0]
             logger.info(f"Selected track: {track.title}")
             
+            # ✅ Store requester info in track extras for later use
+            if not hasattr(track, 'extras'):
+                track.extras = {}
+            track.extras['requester_name'] = message.author.display_name
+            track.extras['requester_id'] = message.author.id
+            
             if not vc.playing:
                 # Actually play the track
                 try:
@@ -536,15 +550,7 @@ class DiscordBot(commands.Bot):
                             requested_by_id=message.author.id
                         )
                         
-                        # 詳細版（music_history）
-                        await self.supabase_client.log_music_play(
-                            guild_id=message.guild.id,
-                            track_title=track.title,
-                            track_url=track.uri if hasattr(track, 'uri') else '',
-                            duration_ms=track.length if hasattr(track, 'length') else 0,
-                            requested_by=message.author.display_name,
-                            requested_by_id=message.author.id
-                        )
+                        # ✅ music_historyはon_wavelink_track_startで自動保存されるため削除
                         
                         # アクティブセッション更新
                         await self.supabase_client.update_active_session(

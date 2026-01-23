@@ -254,3 +254,45 @@ class MusicPlayerView(View):
     async def refresh(self, interaction: discord.Interaction, button: Button):
         """Refresh display"""
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
+    
+    @discord.ui.button(emoji="➕", label="プレイリストへ追加", style=discord.ButtonStyle.success, row=2)
+    async def add_to_playlist(self, interaction: discord.Interaction, button: Button):
+        """現在の曲をプレイリストに追加"""
+        try:
+            queue = self.get_queue()
+            if not queue or not queue.current:
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+                return
+            
+            # プレイリスト管理Cogを取得
+            playlist_manager = self.bot.get_cog('PlaylistManager')
+            if not playlist_manager:
+                await interaction.response.send_message("❌ プレイリスト機能が利用できません", ephemeral=True)
+                return
+            
+            # プレイリスト一覧を取得
+            playlists = await playlist_manager.get_user_playlists(self.guild_id, interaction.user.id)
+            
+            if not playlists:
+                # プレイリストがない場合は作成を促す
+                await interaction.response.send_message(
+                    "📝 プレイリストがありません。\n`/playlist create` で作成してください。",
+                    ephemeral=True
+                )
+                return
+            
+            # プレイリスト選択ビューを表示
+            from cogs.playlist_manager import AddToPlaylistView
+            view = AddToPlaylistView(playlist_manager, interaction, playlists, queue.current)
+            
+            embed = discord.Embed(
+                title="➕ プレイリストに追加",
+                description=f"**{queue.current.title}**\n追加先のプレイリストを選択してください",
+                color=0x00ff88
+            )
+            
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        
+        except Exception as e:
+            logger.error(f"Error in add_to_playlist: {e}")
+            await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)

@@ -82,12 +82,40 @@ class MusicPlayer(commands.Cog):
     
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
-        """Track started - update Supabase active_sessions"""
+        """Track started - save to music_history and update Supabase active_sessions"""
         try:
             player = payload.player
             track = payload.track
             
             if player and player.guild:
+                # ✅ 音楽履歴をSupabaseに保存（再生開始時）
+                try:
+                    # Get requester info from track extras
+                    requester_name = "Unknown"
+                    requester_id = "0"
+                    
+                    # Try to get requester from track.extras
+                    if hasattr(track, 'extras') and track.extras:
+                        if 'requester_name' in track.extras:
+                            requester_name = track.extras['requester_name']
+                        if 'requester_id' in track.extras:
+                            requester_id = str(track.extras['requester_id'])
+                    
+                    # Save to music_history
+                    await self.bot.supabase_client.log_music_play(
+                        guild_id=player.guild.id,
+                        track_title=track.title,
+                        track_url=track.uri if hasattr(track, 'uri') else '',
+                        duration_ms=track.length if hasattr(track, 'length') else 0,
+                        requested_by=requester_name,
+                        requested_by_id=int(requester_id) if requester_id != "0" else 0
+                    )
+                    logger.info(f"💾 Saved music history: {track.title} by {requester_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to save music history: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
                 # Count voice channel members
                 voice_channel = player.channel
                 members_count = len(voice_channel.members) - 1 if voice_channel else 0  # Exclude bot
@@ -109,6 +137,8 @@ class MusicPlayer(commands.Cog):
                 logger.info(f"📊 Updated active session for guild {player.guild.id}")
         except Exception as e:
             logger.error(f"❌ Failed to update active session on track start: {e}")
+            import traceback
+            traceback.print_exc()
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
@@ -373,7 +403,19 @@ class MusicPlayer(commands.Cog):
                 queue = self.get_queue(interaction.guild.id)
                 
                 first_track = tracks[0]
+                
+                # ✅ Store requester info in first track extras
+                if not hasattr(first_track, 'extras'):
+                    first_track.extras = {}
+                first_track.extras['requester_name'] = interaction.user.display_name
+                first_track.extras['requester_id'] = interaction.user.id
+                
                 for track in tracks[1:]:
+                    # ✅ Store requester info in all tracks
+                    if not hasattr(track, 'extras'):
+                        track.extras = {}
+                    track.extras['requester_name'] = interaction.user.display_name
+                    track.extras['requester_id'] = interaction.user.id
                     queue.add(track)
                 
                 if not vc.playing:
@@ -609,6 +651,12 @@ class MusicPlayer(commands.Cog):
             track = tracks[0]
             queue = self.get_queue(interaction.guild.id)
             
+            # ✅ Store requester info in track extras
+            if not hasattr(track, 'extras'):
+                track.extras = {}
+            track.extras['requester_name'] = interaction.user.display_name
+            track.extras['requester_id'] = interaction.user.id
+            
             if not vc.playing:
                 await vc.play(track)
                 queue.current = track
@@ -653,36 +701,9 @@ class MusicPlayer(commands.Cog):
     
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
-        """Handle track end event - save to music_history and manage active_sessions"""
+        """Handle track end event - manage active_sessions and play next track"""
         try:
             player = payload.player
-            track = payload.track
-            
-            # ✅ 音楽履歴をSupabaseに保存
-            if player and player.guild and track:
-                try:
-                    # Get requester info from queue
-                    queue = self.get_queue(player.guild.id)
-                    requester_name = "Unknown"
-                    requester_id = 0
-                    
-                    # Try to get requester from track metadata if available
-                    if hasattr(track, 'requester'):
-                        requester_name = track.requester.display_name if hasattr(track.requester, 'display_name') else str(track.requester)
-                        requester_id = track.requester.id if hasattr(track.requester, 'id') else 0
-                    
-                    # Save to music_history
-                    await self.bot.supabase_client.log_music_play(
-                        guild_id=player.guild.id,
-                        track_title=track.title,
-                        track_url=track.uri if hasattr(track, 'uri') else '',
-                        duration_ms=track.length if hasattr(track, 'length') else 0,
-                        requested_by=requester_name,
-                        requested_by_id=requester_id
-                    )
-                    logger.info(f"💾 Saved music history: {track.title}")
-                except Exception as e:
-                    logger.error(f"❌ Failed to save music history: {e}")
             
             # Ignore if track failed to load or was replaced
             # Only handle FINISHED (normal end) and STOPPED (skip)
@@ -805,6 +826,12 @@ class PlaybackModeView(discord.ui.View):
                 vc = interaction.guild.voice_client
             
             queue = self.music_cog.get_queue(interaction.guild.id)
+            
+            # ✅ Store requester info in track extras
+            if not hasattr(self.track, 'extras'):
+                self.track.extras = {}
+            self.track.extras['requester_name'] = interaction.user.display_name
+            self.track.extras['requester_id'] = interaction.user.id
             
             if not vc.playing:
                 await vc.play(self.track)
@@ -1095,6 +1122,12 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 vc = interaction.guild.voice_client
             
             queue = self.music_cog.get_queue(interaction.guild.id)
+            
+            # ✅ Store requester info in track extras
+            if not hasattr(track, 'extras'):
+                track.extras = {}
+            track.extras['requester_name'] = interaction.user.display_name
+            track.extras['requester_id'] = interaction.user.id
             
             if not vc.playing:
                 await vc.play(track)
