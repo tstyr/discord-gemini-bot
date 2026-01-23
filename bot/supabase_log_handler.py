@@ -39,8 +39,8 @@ class SupabaseLogHandler(logging.Handler):
             self.log_queue.append({
                 'level': level_name,
                 'message': log_entry,
-                'scope': scope,
-                'timestamp': datetime.utcnow().isoformat()
+                'scope': scope
+                # ✅ recorded_at は削除（Supabaseで自動生成）
             })
             
         except Exception as e:

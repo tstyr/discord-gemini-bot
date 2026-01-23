@@ -99,17 +99,42 @@ class MusicPlayerView(View):
         self.update_task = asyncio.create_task(self._update_loop())
     
     async def _update_loop(self):
-        """Update embed every 5 seconds"""
+        """Update embed every 5 seconds and sync with Supabase"""
         try:
             while True:
                 await asyncio.sleep(5)
                 if self.message:
                     vc = self.get_vc()
+                    queue = self.get_queue()
+                    
                     if not vc or not vc.playing:
                         # Stop updating if not playing
                         break
+                    
                     try:
+                        # Update Discord embed
                         await self.message.edit(embed=self.create_embed(), view=self)
+                        
+                        # ✅ Update Supabase active_sessions with current position
+                        if queue and queue.current and hasattr(self.bot, 'supabase_client'):
+                            voice_channel = vc.channel
+                            members_count = len(voice_channel.members) - 1 if voice_channel else 0
+                            
+                            track_data = {
+                                'title': queue.current.title,
+                                'author': getattr(queue.current, 'author', 'Unknown'),
+                                'duration': queue.current.length,
+                                'position': vc.position,  # ✅ 現在の再生位置（ミリ秒）
+                                'is_playing': vc.playing and not vc.paused,
+                                'members_count': members_count
+                            }
+                            
+                            await self.bot.supabase_client.update_active_session(
+                                self.guild_id,
+                                track_data
+                            )
+                            logger.debug(f"📊 Updated position: {vc.position}ms for guild {self.guild_id}")
+                            
                     except discord.NotFound:
                         break
                     except Exception as e:

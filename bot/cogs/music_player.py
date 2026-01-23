@@ -111,25 +111,6 @@ class MusicPlayer(commands.Cog):
             logger.error(f"❌ Failed to update active session on track start: {e}")
     
     @commands.Cog.listener()
-    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
-        """Track ended - clear or update Supabase active_sessions"""
-        try:
-            player = payload.player
-            
-            if player and player.guild:
-                queue = self.get_queue(player.guild.id)
-                
-                # If no more tracks, clear session
-                if not queue.queue and not player.playing:
-                    await self.bot.supabase_client.update_active_session(
-                        player.guild.id,
-                        None
-                    )
-                    logger.info(f"📊 Cleared active session for guild {player.guild.id}")
-        except Exception as e:
-            logger.error(f"❌ Failed to update active session on track end: {e}")
-    
-    @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         """Voice state changed - update member count in active_sessions"""
         try:
@@ -672,9 +653,36 @@ class MusicPlayer(commands.Cog):
     
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
-        """Handle track end event"""
+        """Handle track end event - save to music_history and manage active_sessions"""
         try:
             player = payload.player
+            track = payload.track
+            
+            # ✅ 音楽履歴をSupabaseに保存
+            if player and player.guild and track:
+                try:
+                    # Get requester info from queue
+                    queue = self.get_queue(player.guild.id)
+                    requester_name = "Unknown"
+                    requester_id = 0
+                    
+                    # Try to get requester from track metadata if available
+                    if hasattr(track, 'requester'):
+                        requester_name = track.requester.display_name if hasattr(track.requester, 'display_name') else str(track.requester)
+                        requester_id = track.requester.id if hasattr(track.requester, 'id') else 0
+                    
+                    # Save to music_history
+                    await self.bot.supabase_client.log_music_play(
+                        guild_id=player.guild.id,
+                        track_title=track.title,
+                        track_url=track.uri if hasattr(track, 'uri') else '',
+                        duration_ms=track.length if hasattr(track, 'length') else 0,
+                        requested_by=requester_name,
+                        requested_by_id=requester_id
+                    )
+                    logger.info(f"💾 Saved music history: {track.title}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to save music history: {e}")
             
             # Ignore if track failed to load or was replaced
             # Only handle FINISHED (normal end) and STOPPED (skip)
@@ -687,6 +695,12 @@ class MusicPlayer(commands.Cog):
             
             # Check if player is still connected
             if not player or not player.connected:
+                # Clear active session
+                if player and player.guild:
+                    await self.bot.supabase_client.update_active_session(
+                        player.guild.id,
+                        None
+                    )
                 return
             
             queue = self.get_queue(player.guild.id)
@@ -723,6 +737,13 @@ class MusicPlayer(commands.Cog):
                 await player.disconnect()
                 queue.clear()
                 
+                # ✅ Clear active session
+                await self.bot.supabase_client.update_active_session(
+                    player.guild.id,
+                    None
+                )
+                logger.info(f"📊 Cleared active session for guild {player.guild.id}")
+                
                 # Broadcast disconnect event
                 if self.bot.api_server:
                     await self.bot.api_server.broadcast_music_event({
@@ -732,6 +753,8 @@ class MusicPlayer(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error handling track end: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def cleanup_music_channel(self, guild_id: int):
         """Clean up empty music channel"""
