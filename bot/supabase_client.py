@@ -99,42 +99,53 @@ class SupabaseClient:
             # CPU使用率
             cpu_usage = psutil.cpu_percent(interval=0.1)
             
+            # システム全体のメモリ使用率
+            memory = psutil.virtual_memory()
+            ram_usage = memory.percent  # ✅ 追加: RAM使用率（%）
+            
             # メモリ使用量（プロセス）
             process = psutil.Process()
             memory_info = process.memory_info()
-            ram_rss = memory_info.rss / 1024 / 1024  # MB
-            ram_heap = memory_info.vms / 1024 / 1024  # MB
+            memory_rss = memory_info.rss / 1024 / 1024  # MB (✅ 名前変更)
+            memory_heap = memory_info.vms / 1024 / 1024  # MB (✅ 名前変更)
             
             # Discord Gateway Ping
             ping_gateway = round(self.bot.latency * 1000)  # ms
             
             # Lavalink Ping (音楽機能がある場合)
-            ping_lavalink = None
+            ping_lavalink = 0  # デフォルト値
             try:
-                if hasattr(self.bot, 'wavelink') and self.bot.wavelink:
-                    # Wavelinkのノード情報を取得
-                    nodes = self.bot.wavelink.nodes
-                    if nodes:
-                        ping_lavalink = round(nodes[0].latency * 1000)
-            except:
-                pass
+                import wavelink
+                nodes = wavelink.Pool.nodes
+                if nodes:
+                    node = list(nodes.values())[0]
+                    ping_lavalink = round(node.latency * 1000) if node.latency else 0
+            except Exception as e:
+                logger.debug(f"Lavalink ping unavailable: {e}")
             
             # ✅ 正しいスキーマに合わせたデータ
             stats = {
                 'cpu_usage': float(cpu_usage),
-                'ram_rss': float(ram_rss),
-                'ram_heap': float(ram_heap),
-                'ping_gateway': int(ping_gateway),
-                'ping_lavalink': int(ping_lavalink) if ping_lavalink else None
+                'ram_usage': float(ram_usage),          # ✅ 追加
+                'memory_rss': float(memory_rss),        # ✅ 名前変更
+                'memory_heap': float(memory_heap),      # ✅ 名前変更
+                'ping_gateway': float(ping_gateway),
+                'ping_lavalink': float(ping_lavalink),
+                'server_count': len(self.bot.guilds),   # ✅ 追加
+                'guild_count': len(self.bot.guilds),    # ✅ 追加
+                'uptime': int(time.time() - self.bot.start_time),  # ✅ 追加
+                'status': 'online'                      # ✅ 追加
             }
             
-            # INSERTでデータを追加（created_atは自動）
+            # INSERTでデータを追加（recorded_at, created_atは自動）
             self.client.table('system_stats').insert(stats).execute()
             
-            logger.debug(f"📊 System stats sent: CPU={cpu_usage:.1f}%, RAM={ram_rss:.1f}MB")
+            logger.info(f"📊 System stats sent: CPU={cpu_usage:.1f}%, RAM={ram_usage:.1f}%, Status=online")
             
         except Exception as e:
             logger.error(f"❌ Failed to send system stats: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def start_realtime_listener(self):
         """Realtimeチャンネルでコマンドキューを監視"""
@@ -329,16 +340,21 @@ class SupabaseClient:
                     'track_title': track_data.get('title'),
                     'position_ms': int(track_data.get('position', 0)),
                     'duration_ms': int(track_data.get('duration', 0)),
-                    'is_playing': bool(track_data.get('is_playing', False))
+                    'is_playing': bool(track_data.get('is_playing', False)),
+                    'voice_members_count': int(track_data.get('members_count', 0))  # ✅ 追加
                 }
                 
                 self.client.table('active_sessions').upsert(session_data).execute()
+                logger.debug(f"📊 Active session updated for guild {guild_id}")
             else:
                 # セッション終了
                 self.client.table('active_sessions').delete().eq('guild_id', str(guild_id)).execute()
+                logger.debug(f"📊 Active session cleared for guild {guild_id}")
                 
         except Exception as e:
             logger.error(f"❌ Failed to update active session: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def log_gemini_usage(self, guild_id: int, user_id: int, prompt_tokens: int, 
                               completion_tokens: int, total_tokens: int, model: str = "gemini-pro"):
@@ -365,7 +381,7 @@ class SupabaseClient:
     
     async def log_music_play(self, guild_id: int, track_title: str, track_url: str,
                             duration_ms: int, requested_by: str, requested_by_id: int):
-        """音楽再生ログをSupabaseに記録"""
+        """音楽再生ログをSupabaseに記録（music_history）"""
         if not self.client:
             return
         
@@ -374,16 +390,19 @@ class SupabaseClient:
             data = {
                 "guild_id": str(guild_id),
                 "track_title": str(track_title),
-                "track_url": str(track_url),
+                "track_url": str(track_url) if track_url else None,
                 "duration_ms": int(duration_ms),
-                "requested_by": str(requested_by)
+                "requested_by": str(requested_by),
+                "requested_by_id": str(requested_by_id)  # ✅ 追加
             }
             
             self.client.table("music_history").insert(data).execute()
-            logger.debug(f"🎵 Music play logged: {track_title}")
+            logger.debug(f"🎵 Music history logged: {track_title}")
             
         except Exception as e:
             logger.error(f"❌ Failed to log music play: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def log_bot_event(self, level: str, message: str):
         """BotイベントログをSupabaseに送信"""
@@ -408,33 +427,41 @@ class SupabaseClient:
             return
         
         try:
-            self.client.table('conversation_logs').insert({
+            data = {
                 'user_id': str(user_id),
                 'user_name': user_name,
                 'prompt': prompt,
-                'response': response,
-                'recorded_at': datetime.utcnow().isoformat()
-            }).execute()
-            logger.debug(f"💬 Conversation log saved for {user_name}")
+                'response': response
+                # ✅ recorded_at は削除（Supabaseで自動設定）
+            }
+            
+            self.client.table('conversation_logs').insert(data).execute()
+            logger.info(f"💬 Conversation log saved for {user_name}")
         except Exception as e:
             logger.error(f"❌ Failed to save conversation log: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def save_music_log(self, guild_id: int, song_title: str, requested_by: str, requested_by_id: int):
-        """音楽ログをSupabaseに保存"""
+        """音楽ログをSupabaseに保存（music_logs）"""
         if not self.client:
             return
         
         try:
-            self.client.table('music_logs').insert({
+            data = {
                 'guild_id': str(guild_id),
                 'song_title': song_title,
                 'requested_by': requested_by,
-                'requested_by_id': str(requested_by_id),
-                'recorded_at': datetime.utcnow().isoformat()
-            }).execute()
-            logger.debug(f"🎵 Music log saved: {song_title} by {requested_by}")
+                'requested_by_id': str(requested_by_id)
+                # ✅ recorded_at は削除（Supabaseで自動設定）
+            }
+            
+            self.client.table('music_logs').insert(data).execute()
+            logger.info(f"🎵 Music log saved: {song_title} by {requested_by}")
         except Exception as e:
             logger.error(f"❌ Failed to save music log: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def shutdown(self):
         """シャットダウン処理"""
