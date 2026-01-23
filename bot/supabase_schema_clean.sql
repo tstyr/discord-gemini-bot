@@ -1,0 +1,224 @@
+-- Supabase テーブル定義（クリーンインストール用）
+-- このSQLをSupabaseのSQL Editorで実行してください
+
+-- 既存のテーブルとポリシーを削除
+DROP POLICY IF EXISTS "Allow authenticated read access" ON system_stats;
+DROP POLICY IF EXISTS "Allow service role full access" ON system_stats;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON conversation_logs;
+DROP POLICY IF EXISTS "Allow service role full access" ON conversation_logs;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON music_logs;
+DROP POLICY IF EXISTS "Allow service role full access" ON music_logs;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON music_history;
+DROP POLICY IF EXISTS "Allow service role full access" ON music_history;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON gemini_usage;
+DROP POLICY IF EXISTS "Allow service role full access" ON gemini_usage;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON command_queue;
+DROP POLICY IF EXISTS "Allow service role full access" ON command_queue;
+DROP POLICY IF EXISTS "Allow authenticated insert commands" ON command_queue;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON active_sessions;
+DROP POLICY IF EXISTS "Allow service role full access" ON active_sessions;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON job_logs;
+DROP POLICY IF EXISTS "Allow service role full access" ON job_logs;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON bot_logs;
+DROP POLICY IF EXISTS "Allow service role full access" ON bot_logs;
+
+DROP TABLE IF EXISTS job_logs CASCADE;
+DROP TABLE IF EXISTS bot_logs CASCADE;
+DROP TABLE IF EXISTS active_sessions CASCADE;
+DROP TABLE IF EXISTS command_queue CASCADE;
+DROP TABLE IF EXISTS gemini_usage CASCADE;
+DROP TABLE IF EXISTS music_history CASCADE;
+DROP TABLE IF EXISTS music_logs CASCADE;
+DROP TABLE IF EXISTS conversation_logs CASCADE;
+DROP TABLE IF EXISTS system_stats CASCADE;
+DROP FUNCTION IF EXISTS delete_old_logs() CASCADE;
+
+-- 1. システム統計テーブル
+CREATE TABLE system_stats (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id TEXT DEFAULT 'primary',
+    cpu_usage REAL DEFAULT 0,
+    ram_usage REAL DEFAULT 0,
+    memory_rss REAL DEFAULT 0,
+    memory_heap REAL DEFAULT 0,
+    ping_gateway REAL DEFAULT 0,
+    ping_lavalink REAL DEFAULT 0,
+    server_count INTEGER DEFAULT 0,
+    guild_count INTEGER DEFAULT 0,
+    uptime INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'online',
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_system_stats_recorded_at ON system_stats(recorded_at DESC);
+CREATE INDEX idx_system_stats_bot_id ON system_stats(bot_id, recorded_at DESC);
+
+-- 2. 会話ログテーブル
+CREATE TABLE conversation_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    response TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_conversation_logs_user_id ON conversation_logs(user_id, recorded_at DESC);
+CREATE INDEX idx_conversation_logs_recorded_at ON conversation_logs(recorded_at DESC);
+
+-- 3. 音楽ログテーブル
+CREATE TABLE music_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    song_title TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    requested_by_id TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_music_logs_guild_id ON music_logs(guild_id, recorded_at DESC);
+CREATE INDEX idx_music_logs_recorded_at ON music_logs(recorded_at DESC);
+
+-- 4. 音楽再生履歴テーブル
+CREATE TABLE music_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    track_title TEXT NOT NULL,
+    track_url TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    requested_by TEXT NOT NULL,
+    requested_by_id TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_music_history_guild_id ON music_history(guild_id, recorded_at DESC);
+CREATE INDEX idx_music_history_recorded_at ON music_history(recorded_at DESC);
+
+-- 5. Gemini使用ログテーブル
+CREATE TABLE gemini_usage (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    model TEXT DEFAULT 'gemini-pro',
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_gemini_usage_guild_id ON gemini_usage(guild_id, recorded_at DESC);
+CREATE INDEX idx_gemini_usage_user_id ON gemini_usage(user_id, recorded_at DESC);
+CREATE INDEX idx_gemini_usage_recorded_at ON gemini_usage(recorded_at DESC);
+
+-- 6. コマンドキューテーブル
+CREATE TABLE command_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    command_type TEXT NOT NULL,
+    payload JSONB DEFAULT '{}',
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    result TEXT,
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_command_queue_status ON command_queue(status, created_at);
+
+-- 7. アクティブセッションテーブル
+CREATE TABLE active_sessions (
+    guild_id TEXT PRIMARY KEY,
+    track_title TEXT,
+    position_ms INTEGER DEFAULT 0,
+    duration_ms INTEGER DEFAULT 0,
+    is_playing BOOLEAN DEFAULT FALSE,
+    voice_members_count INTEGER DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. ジョブログテーブル
+CREATE TABLE job_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    command_id UUID REFERENCES command_queue(id),
+    command_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result TEXT,
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_job_logs_command_id ON job_logs(command_id);
+CREATE INDEX idx_job_logs_created_at ON job_logs(created_at DESC);
+
+-- 9. Botログテーブル
+CREATE TABLE bot_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    level TEXT NOT NULL CHECK (level IN ('debug', 'info', 'warning', 'error', 'critical')),
+    message TEXT NOT NULL,
+    scope TEXT DEFAULT 'general',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_bot_logs_level ON bot_logs(level, created_at DESC);
+CREATE INDEX idx_bot_logs_scope ON bot_logs(scope, created_at DESC);
+CREATE INDEX idx_bot_logs_created_at ON bot_logs(created_at DESC);
+
+-- 古いログを自動削除する関数
+CREATE OR REPLACE FUNCTION delete_old_logs()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM bot_logs WHERE created_at < NOW() - INTERVAL '30 days';
+    DELETE FROM job_logs WHERE created_at < NOW() - INTERVAL '30 days';
+    DELETE FROM conversation_logs WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM music_logs WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM music_history WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM gemini_usage WHERE created_at < NOW() - INTERVAL '90 days';
+    DELETE FROM system_stats WHERE created_at < NOW() - INTERVAL '7 days';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Row Level Security (RLS) の設定
+ALTER TABLE system_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE music_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE music_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gemini_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE command_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE active_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bot_logs ENABLE ROW LEVEL SECURITY;
+
+-- 読み取り専用ポリシー（認証済みユーザー）
+CREATE POLICY "Allow authenticated read access" ON system_stats FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON conversation_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON music_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON music_history FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON gemini_usage FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON command_queue FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON active_sessions FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON job_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read access" ON bot_logs FOR SELECT TO authenticated USING (true);
+
+-- Bot用の書き込みポリシー（service_roleキーを使用）
+CREATE POLICY "Allow service role full access" ON system_stats FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON conversation_logs FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON music_logs FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON music_history FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON gemini_usage FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON command_queue FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON active_sessions FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON job_logs FOR ALL TO service_role USING (true);
+CREATE POLICY "Allow service role full access" ON bot_logs FOR ALL TO service_role USING (true);
+
+-- ダッシュボード用のコマンド挿入ポリシー
+CREATE POLICY "Allow authenticated insert commands" ON command_queue FOR INSERT TO authenticated WITH CHECK (true);
+
+-- 完了メッセージ
+SELECT 'Supabase schema created successfully! 9 tables created.' AS status;
