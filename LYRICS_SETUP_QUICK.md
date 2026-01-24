@@ -4,29 +4,69 @@
 
 このエラーは、Supabaseに`lyrics_logs`テーブルが作成されていないことを示しています。
 
-## 解決方法（3ステップ）
+## 解決方法（2つの方法）
 
-### ステップ1: Supabaseダッシュボードにアクセス
+### 方法1: シンプル版（推奨）
 
-1. https://supabase.com/dashboard にログイン
-2. プロジェクトを選択
+最もシンプルで確実な方法です。
 
-### ステップ2: SQL Editorでテーブルを作成
+#### ステップ1: テーブルを作成
 
-1. 左メニューから「**SQL Editor**」をクリック
-2. 「**New query**」をクリック
-3. 以下のSQLをコピー&ペースト：
+Supabase SQL Editorで以下を実行：
 
 ```sql
--- 歌詞ログテーブルを追加
+-- テーブル作成
+CREATE TABLE IF NOT EXISTS lyrics_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    guild_id TEXT NOT NULL,
+    lyrics_text TEXT NOT NULL,
+    timestamp_sec REAL NOT NULL,
+    track_title TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 既存のテーブルとポリシーを削除（存在する場合）
+-- インデックス作成
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_guild_id ON lyrics_logs(guild_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_created_at ON lyrics_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_track_title ON lyrics_logs(track_title);
+
+-- RLS有効化
+ALTER TABLE lyrics_logs ENABLE ROW LEVEL SECURITY;
+
+-- 完了
+SELECT 'Table created!' AS status;
+```
+
+#### ステップ2: ポリシーを作成
+
+次に、以下を実行：
+
+```sql
+-- ポリシーが存在する場合は削除
 DROP POLICY IF EXISTS "Allow authenticated read access" ON lyrics_logs;
 DROP POLICY IF EXISTS "Allow service role full access" ON lyrics_logs;
-DROP TABLE IF EXISTS lyrics_logs CASCADE;
 
--- 歌詞ログテーブル
-CREATE TABLE lyrics_logs (
+-- 読み取り専用ポリシー
+CREATE POLICY "Allow authenticated read access" ON lyrics_logs 
+    FOR SELECT TO authenticated USING (true);
+
+-- Bot用の書き込みポリシー
+CREATE POLICY "Allow service role full access" ON lyrics_logs 
+    FOR ALL TO service_role USING (true);
+
+-- 完了
+SELECT 'Policies created!' AS status;
+```
+
+### 方法2: 完全版（1回で実行）
+
+### 方法2: 完全版（1回で実行）
+
+#### Supabase SQL Editorで実行
+
+```sql
+-- 歌詞ログテーブルを作成
+CREATE TABLE IF NOT EXISTS lyrics_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     guild_id TEXT NOT NULL,
     lyrics_text TEXT NOT NULL,
@@ -36,33 +76,34 @@ CREATE TABLE lyrics_logs (
 );
 
 -- インデックス
-CREATE INDEX idx_lyrics_logs_guild_id ON lyrics_logs(guild_id, created_at DESC);
-CREATE INDEX idx_lyrics_logs_created_at ON lyrics_logs(created_at DESC);
-CREATE INDEX idx_lyrics_logs_track_title ON lyrics_logs(track_title);
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_guild_id ON lyrics_logs(guild_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_created_at ON lyrics_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lyrics_logs_track_title ON lyrics_logs(track_title);
 
--- Row Level Security (RLS) の設定
+-- RLS有効化
 ALTER TABLE lyrics_logs ENABLE ROW LEVEL SECURITY;
 
--- 読み取り専用ポリシー（認証済みユーザー）
+-- ポリシー削除（エラーを無視）
+DO $$ 
+BEGIN
+    DROP POLICY IF EXISTS "Allow authenticated read access" ON lyrics_logs;
+    DROP POLICY IF EXISTS "Allow service role full access" ON lyrics_logs;
+EXCEPTION
+    WHEN undefined_table THEN NULL;
+END $$;
+
+-- ポリシー作成
 CREATE POLICY "Allow authenticated read access" ON lyrics_logs 
     FOR SELECT TO authenticated USING (true);
 
--- Bot用の書き込みポリシー（service_roleキーを使用）
 CREATE POLICY "Allow service role full access" ON lyrics_logs 
     FOR ALL TO service_role USING (true);
 
--- 完了メッセージ
+-- 完了
 SELECT 'Lyrics logs table created successfully!' AS status;
 ```
 
-4. 「**Run**」をクリック
-
-### ステップ3: 結果を確認
-
-成功すると以下のメッセージが表示されます：
-```
-status: "Lyrics logs table created successfully!"
-```
+---
 
 ## 使用方法
 
