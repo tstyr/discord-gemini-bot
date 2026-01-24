@@ -158,6 +158,92 @@ class AdminCommands(commands.Cog):
             import traceback
             traceback.print_exc()
             await interaction.followup.send(f"❌ エラーが発生しました: {str(e)}", ephemeral=True)
+    
+    @app_commands.command(name="netstats", description="ネットワーク統計を表示")
+    @app_commands.describe(period="期間")
+    @app_commands.choices(period=[
+        app_commands.Choice(name="今日", value="today"),
+        app_commands.Choice(name="今週", value="week"),
+        app_commands.Choice(name="今月", value="month"),
+        app_commands.Choice(name="全期間", value="all"),
+    ])
+    async def netstats(self, interaction: discord.Interaction, period: str = "today"):
+        """ネットワーク統計を表示"""
+        await interaction.response.defer()
+        
+        try:
+            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+                await interaction.followup.send("❌ Supabaseに接続されていません。", ephemeral=True)
+                return
+            
+            # 期間の開始日時を計算
+            now = datetime.utcnow()
+            
+            if period == "today":
+                start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                title = "📊 Network Stats - Today"
+            elif period == "week":
+                start_date = now - timedelta(days=7)
+                title = "📊 Network Stats - Last 7 Days"
+            elif period == "month":
+                start_date = now - timedelta(days=30)
+                title = "📊 Network Stats - Last 30 Days"
+            else:  # all
+                start_date = datetime(2020, 1, 1)
+                title = "📊 Network Stats - All Time"
+            
+            # データを取得
+            result = self.bot.supabase_client.client.table('network_stats')\
+                .select('mb_sent, mb_recv, mb_total')\
+                .gte('recorded_at', start_date.isoformat())\
+                .execute()
+            
+            if not result.data:
+                await interaction.followup.send("📊 データがありません。", ephemeral=True)
+                return
+            
+            # 合計を計算
+            total_sent = sum(row['mb_sent'] for row in result.data)
+            total_recv = sum(row['mb_recv'] for row in result.data)
+            total = total_sent + total_recv
+            
+            # GBに変換（1GB以上の場合）
+            if total >= 1024:
+                sent_str = f"{total_sent / 1024:.2f} GB"
+                recv_str = f"{total_recv / 1024:.2f} GB"
+                total_str = f"{total / 1024:.2f} GB"
+            else:
+                sent_str = f"{total_sent:.2f} MB"
+                recv_str = f"{total_recv:.2f} MB"
+                total_str = f"{total:.2f} MB"
+            
+            embed = discord.Embed(
+                title=title,
+                color=0x00ff88,
+                timestamp=datetime.utcnow()
+            )
+            
+            embed.add_field(name="📤 Sent", value=sent_str, inline=True)
+            embed.add_field(name="📥 Received", value=recv_str, inline=True)
+            embed.add_field(name="📊 Total", value=total_str, inline=True)
+            
+            # データポイント数
+            embed.add_field(name="📈 Data Points", value=f"{len(result.data):,}", inline=True)
+            
+            # 平均（10秒ごとのデータなので）
+            if len(result.data) > 0:
+                avg_per_10s = total / len(result.data)
+                embed.add_field(name="⚡ Avg/10s", value=f"{avg_per_10s:.2f} MB", inline=True)
+            
+            embed.set_footer(text="Updated every 10 seconds")
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in netstats command: {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ エラーが発生しました: {str(e)}", ephemeral=True)
 
 
 async def setup(bot):

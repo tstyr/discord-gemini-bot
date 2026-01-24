@@ -24,6 +24,7 @@ class SupabaseClient:
         self.client: Optional[Client] = None
         self.realtime_channel = None
         self.is_running = False
+        self._last_net_io = None  # ✅ ネットワークI/O統計の前回値
         
     async def initialize(self):
         """Supabaseクライアントを初期化"""
@@ -81,6 +82,7 @@ class SupabaseClient:
         """10秒ごとにシステムメトリクスを送信（tasks.loop使用）"""
         try:
             await self._send_system_stats()
+            await self._send_network_stats()  # ✅ ネットワーク統計を追加
         except Exception as e:
             logger.error(f"❌ Health monitor error: {e}")
     
@@ -146,6 +148,53 @@ class SupabaseClient:
             logger.error(f"❌ Failed to send system stats: {e}")
             import traceback
             traceback.print_exc()
+    
+    async def _send_network_stats(self):
+        """ネットワーク統計をSupabaseに送信"""
+        if not self.client or not self.is_running:
+            return
+        
+        try:
+            # 現在のネットワークI/O統計
+            net_io = psutil.net_io_counters()
+            
+            # 前回の値との差分を計算（初回は0）
+            if self._last_net_io is None:
+                self._last_net_io = net_io
+                logger.debug("📊 Network stats initialized")
+                return
+            
+            bytes_sent = net_io.bytes_sent - self._last_net_io.bytes_sent
+            bytes_recv = net_io.bytes_recv - self._last_net_io.bytes_recv
+            bytes_total = bytes_sent + bytes_recv
+            
+            # MBに変換
+            mb_sent = bytes_sent / 1024 / 1024
+            mb_recv = bytes_recv / 1024 / 1024
+            mb_total = bytes_total / 1024 / 1024
+            
+            stats = {
+                'bytes_sent': int(bytes_sent),
+                'bytes_recv': int(bytes_recv),
+                'bytes_total': int(bytes_total),
+                'mb_sent': float(mb_sent),
+                'mb_recv': float(mb_recv),
+                'mb_total': float(mb_total)
+            }
+            
+            self.client.table('network_stats').insert(stats).execute()
+            
+            # 現在の値を保存
+            self._last_net_io = net_io
+            
+            logger.debug(f"📊 Network stats: TX={mb_sent:.2f}MB, RX={mb_recv:.2f}MB")
+            
+        except Exception as e:
+            # テーブルが存在しない場合は警告のみ
+            if 'does not exist' in str(e) or 'PGRST204' in str(e):
+                logger.warning(f"⚠️ network_stats table does not exist. Please run add_network_stats_table.sql in Supabase.")
+            else:
+                logger.error(f"❌ Failed to send network stats: {e}")
     
     async def start_realtime_listener(self):
         """Realtimeチャンネルでコマンドキューを監視"""
