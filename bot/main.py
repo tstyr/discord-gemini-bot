@@ -113,7 +113,8 @@ class DiscordBot(commands.Bot):
         try:
             await self.load_extension('cogs.music_player')
             await self.load_extension('cogs.playlist_manager')  # ✅ プレイリスト管理を追加
-            logger.info("Music player and playlist manager loaded successfully")
+            await self.load_extension('cogs.lyrics_streamer')  # ✅ 歌詞配信機能を追加
+            logger.info("Music player, playlist manager, and lyrics streamer loaded successfully")
         except Exception as e:
             logger.warning(f"Music player not loaded (Lavalink may not be running): {e}")
         
