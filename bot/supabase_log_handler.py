@@ -15,6 +15,8 @@ class SupabaseLogHandler(logging.Handler):
         self.log_queue = deque(maxlen=1000)  # 最大1000件のログをバッファ
         self.is_running = False
         self.flush_task = None
+        self.cleanup_counter = 0  # ✅ クリーンアップカウンター
+        self.cleanup_interval = 100  # ✅ 100回のフラッシュごとにクリーンアップ
         
     def emit(self, record: logging.LogRecord):
         """ログレコードを受信してキューに追加"""
@@ -75,11 +77,65 @@ class SupabaseLogHandler(logging.Handler):
                 # バッチでSupabaseに送信
                 self.supabase_client.client.table('bot_logs').insert(logs_to_send).execute()
                 
+                # ✅ クリーンアップカウンターを増やす
+                self.cleanup_counter += 1
+                
+                # ✅ 一定回数ごとにクリーンアップ
+                if self.cleanup_counter >= self.cleanup_interval:
+                    await self._cleanup_old_logs()
+                    self.cleanup_counter = 0
+                
         except Exception as e:
             print(f"Error flushing logs to Supabase: {e}")
             # エラーが発生した場合、ログを再度キューに戻す
             for log in reversed(logs_to_send):
                 self.log_queue.appendleft(log)
+    
+    async def _cleanup_old_logs(self):
+        """古いログを削除して20万件以下に保つ"""
+        try:
+            if not self.supabase_client.client:
+                return
+            
+            # レコード数を取得
+            count_result = self.supabase_client.client.table('bot_logs')\
+                .select('id', count='exact')\
+                .execute()
+            
+            total_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data)
+            
+            if total_count > 200000:
+                # 削除する件数
+                delete_count = total_count - 200000
+                
+                print(f"🗑️ Cleaning up {delete_count} old bot_logs records...")
+                
+                # 古い順にIDを取得
+                old_records = self.supabase_client.client.table('bot_logs')\
+                    .select('id')\
+                    .order('created_at', desc=False)\
+                    .limit(delete_count)\
+                    .execute()
+                
+                if old_records.data:
+                    # IDのリストを作成
+                    ids_to_delete = [record['id'] for record in old_records.data]
+                    
+                    # バッチ削除（1000件ずつ）
+                    batch_size = 1000
+                    for i in range(0, len(ids_to_delete), batch_size):
+                        batch = ids_to_delete[i:i + batch_size]
+                        self.supabase_client.client.table('bot_logs')\
+                            .delete()\
+                            .in_('id', batch)\
+                            .execute()
+                    
+                    print(f"✅ Deleted {len(ids_to_delete)} old bot_logs records")
+            
+        except Exception as e:
+            print(f"❌ Failed to cleanup old logs: {e}")
+            import traceback
+            traceback.print_exc()
     
     def stop(self):
         """ハンドラーを停止"""

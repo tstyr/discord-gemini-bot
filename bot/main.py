@@ -110,6 +110,7 @@ class DiscordBot(commands.Bot):
         await self.load_extension('cogs.ai_commands')
         await self.load_extension('cogs.settings')
         await self.load_extension('cogs.channel_manager')
+        await self.load_extension('cogs.admin_commands')  # ✅ 管理者コマンドを追加
         
         # Try to load music player (optional, requires Lavalink)
         try:
