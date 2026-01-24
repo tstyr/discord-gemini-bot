@@ -140,7 +140,7 @@ class DiscordBot(commands.Bot):
             logger.error(f'❌ Failed to sync global commands: {e}')
         
         # ✅ Start status rotation
-        if not hasattr(self, 'status_task') or self.status_task.done():
+        if not hasattr(self, 'status_task') or self.status_task is None or self.status_task.done():
             self.status_task = asyncio.create_task(self._status_rotation())
         
         # ✅ Resume music sessions from Supabase
