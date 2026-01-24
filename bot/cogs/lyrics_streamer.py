@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # 歌詞API
 LRCLIB_API = "https://lrclib.net/api/get"
 GENIUS_API = "https://api.genius.com"
+NETEASE_API = "https://netease-cloud-music-api-phi-gules-69.vercel.app"
 
 OFFSET = 0.5  # 0.5秒早めに送信
 
@@ -213,16 +214,26 @@ class LyricsStreamer(commands.Cog):
                 traceback.print_exc()
     
     async def fetch_lyrics(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
-        """複数のAPIから歌詞を取得（LRCLIB → Genius フォールバック）"""
+        """複数のAPIから歌詞を取得（LRCLIB → NetEase → Genius フォールバック）"""
+        
+        # クエリをクリーンアップ
+        clean_title = self._clean_query(track_title)
+        clean_artist = self._clean_query(artist)
         
         # 1. LRCLIB API（最優先、タイムスタンプ付き）
-        lyrics = await self._fetch_from_lrclib(track_title, artist, duration)
+        lyrics = await self._fetch_from_lrclib(clean_title, clean_artist, duration)
         if lyrics:
             logger.info(f"✅ Lyrics found on LRCLIB: {len(lyrics)} lines")
             return lyrics
         
-        # 2. Genius API（フォールバック、タイムスタンプ推定）
-        lyrics = await self._fetch_from_genius(track_title, artist, duration)
+        # 2. NetEase Cloud Music API（日本語の曲に強い）
+        lyrics = await self._fetch_from_netease(clean_title, clean_artist)
+        if lyrics:
+            logger.info(f"✅ Lyrics found on NetEase: {len(lyrics)} lines")
+            return lyrics
+        
+        # 3. Genius API（フォールバック、タイムスタンプ推定）
+        lyrics = await self._fetch_from_genius(clean_title, clean_artist, duration)
         if lyrics:
             logger.info(f"✅ Lyrics found on Genius: {len(lyrics)} lines (estimated timestamps)")
             return lyrics
@@ -230,9 +241,58 @@ class LyricsStreamer(commands.Cog):
         logger.warning(f"❌ No lyrics found for: {track_title} by {artist}")
         return None
     
+    def _clean_query(self, query: str) -> str:
+        """クエリから余計な文字列を削除"""
+        # 日本語特有のパターン
+        patterns = [
+            r'\(TV Size\)',
+            r'\(TV Ver\.\)',
+            r'\(Short Ver\.\)',
+            r'\(Full Ver\.\)',
+            r'\(Anime Ver\.\)',
+            r'\(Game Ver\.\)',
+            r'- Remastered',
+            r'- Remaster',
+            r'\(Remastered\)',
+            r'\(Remaster\)',
+            r'- \d{4} Remaster',
+            r'\(\d{4} Remaster\)',
+            r'- Remix',
+            r'\(Remix\)',
+            r'- Extended',
+            r'\(Extended\)',
+            r'- Radio Edit',
+            r'\(Radio Edit\)',
+            r'- Instrumental',
+            r'\(Instrumental\)',
+            r'- Acoustic',
+            r'\(Acoustic\)',
+            r'- Live',
+            r'\(Live\)',
+            r'- Official Audio',
+            r'\(Official Audio\)',
+            r'- Official Video',
+            r'\(Official Video\)',
+            r'\[.*?\]',  # 角括弧内の文字列
+            r'\(feat\..*?\)',  # feat.
+            r'\(ft\..*?\)',  # ft.
+        ]
+        
+        cleaned = query
+        for pattern in patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        
+        # 余分な空白を削除
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        return cleaned
+    
     async def _fetch_from_lrclib(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
         """LRCLIB APIから歌詞を取得"""
         try:
+            # Artist Name - Song Title 形式で検索
+            search_query = f"{artist} - {track_title}" if artist and artist != "Unknown" else track_title
+            
             params = {
                 'track_name': track_title,
                 'artist_name': artist,
@@ -242,14 +302,14 @@ class LyricsStreamer(commands.Cog):
             async with aiohttp.ClientSession() as session:
                 async with session.get(LRCLIB_API, params=params, timeout=aiohttp.ClientTimeout(total=5)) as response:
                     if response.status != 200:
-                        logger.debug(f"LRCLIB returned {response.status}")
+                        logger.debug(f"LRCLIB returned {response.status} for: {search_query}")
                         return None
                     
                     data = await response.json()
                     synced_lyrics = data.get('syncedLyrics')
                     
                     if not synced_lyrics:
-                        logger.debug("No synced lyrics on LRCLIB")
+                        logger.debug(f"No synced lyrics on LRCLIB for: {search_query}")
                         return None
                     
                     return self._parse_lrc(synced_lyrics)
@@ -259,6 +319,76 @@ class LyricsStreamer(commands.Cog):
             return None
         except Exception as e:
             logger.debug(f"LRCLIB error: {e}")
+            return None
+    
+    async def _fetch_from_netease(self, track_title: str, artist: str) -> Optional[List[LyricsLine]]:
+        """NetEase Cloud Music APIから歌詞を取得"""
+        try:
+            # Artist Name - Song Title 形式で検索
+            search_query = f"{artist} - {track_title}" if artist and artist != "Unknown" else track_title
+            
+            async with aiohttp.ClientSession() as session:
+                # 1. 曲を検索
+                search_url = f"{NETEASE_API}/cloudsearch"
+                search_params = {
+                    'keywords': search_query,
+                    'type': 1,  # 1 = 曲
+                    'limit': 5
+                }
+                
+                async with session.get(search_url, params=search_params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        logger.debug(f"NetEase search returned {response.status} for: {search_query}")
+                        return None
+                    
+                    data = await response.json()
+                    
+                    if data.get('code') != 200:
+                        logger.debug(f"NetEase API error: {data.get('code')}")
+                        return None
+                    
+                    songs = data.get('result', {}).get('songs', [])
+                    
+                    if not songs:
+                        logger.debug(f"No songs found on NetEase for: {search_query}")
+                        return None
+                    
+                    # 最初の曲のIDを取得
+                    song_id = songs[0]['id']
+                    logger.debug(f"Found NetEase song ID: {song_id} for: {search_query}")
+                
+                # 2. 歌詞を取得
+                lyrics_url = f"{NETEASE_API}/lyric"
+                lyrics_params = {'id': song_id}
+                
+                async with session.get(lyrics_url, params=lyrics_params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        logger.debug(f"NetEase lyrics returned {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    
+                    if data.get('code') != 200:
+                        logger.debug(f"NetEase lyrics API error: {data.get('code')}")
+                        return None
+                    
+                    # LRC形式の歌詞を取得
+                    lrc_data = data.get('lrc', {}).get('lyric')
+                    
+                    if not lrc_data:
+                        logger.debug("No LRC lyrics in NetEase response")
+                        return None
+                    
+                    # LRC形式をパース
+                    return self._parse_lrc(lrc_data)
+        
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ NetEase timeout")
+            return None
+        except Exception as e:
+            logger.debug(f"NetEase error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def _fetch_from_genius(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
@@ -322,19 +452,38 @@ class LyricsStreamer(commands.Cog):
         """LRC形式の歌詞をパース"""
         lyrics = []
         
-        # [mm:ss.xx] text の形式
+        # [mm:ss.xx] text または [mm:ss.xxx] text の形式
+        # NetEaseは [mm:ss.xxx] (ミリ秒3桁) を使用
         pattern = re.compile(r'\[(\d+):(\d+)\.(\d+)\](.+)')
         
         for line in lrc_text.split('\n'):
-            match = pattern.match(line.strip())
+            line = line.strip()
+            if not line:
+                continue
+            
+            match = pattern.match(line)
             if match:
                 minutes = int(match.group(1))
                 seconds = int(match.group(2))
-                centiseconds = int(match.group(3))
+                subseconds = match.group(3)
                 text = match.group(4).strip()
                 
-                # 秒数に変換
-                timestamp = minutes * 60 + seconds + centiseconds / 100.0
+                # 空の歌詞行はスキップ
+                if not text:
+                    continue
+                
+                # サブ秒の処理（2桁または3桁）
+                if len(subseconds) == 2:
+                    # センチ秒（1/100秒）
+                    centiseconds = int(subseconds)
+                    timestamp = minutes * 60 + seconds + centiseconds / 100.0
+                elif len(subseconds) == 3:
+                    # ミリ秒（1/1000秒）
+                    milliseconds = int(subseconds)
+                    timestamp = minutes * 60 + seconds + milliseconds / 1000.0
+                else:
+                    # その他の場合は秒のみ
+                    timestamp = minutes * 60 + seconds
                 
                 lyrics.append(LyricsLine(timestamp, text))
         
