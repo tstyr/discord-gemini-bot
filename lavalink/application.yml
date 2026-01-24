@@ -11,7 +11,7 @@ lavalink:
   server:
     password: "youshallnotpass"
     sources:
-      youtube: false
+      youtube: false  # Disable old YouTube source (deprecated)
       bandcamp: true
       soundcloud: true
       twitch: true
@@ -79,9 +79,10 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
-      - MUSIC
+      - ANDROID_TESTSUITE  # Most reliable client
       - ANDROID_LITE
-      - MEDIA_CONNECT
+      - WEB
+      - MUSIC
 
   lavasrc:
     providers:

@@ -8,11 +8,15 @@ import re
 import logging
 from typing import Optional, List, Dict, Tuple
 import asyncio
+import os
 
 logger = logging.getLogger(__name__)
 
-# LRCLIB API
+# 複数の歌詞API
 LRCLIB_API = "https://lrclib.net/api/get"
+MUSIXMATCH_API = "https://api.musixmatch.com/ws/1.1"
+GENIUS_API = "https://api.genius.com"
+
 OFFSET = 0.5  # 0.5秒早めに送信
 
 
@@ -210,7 +214,31 @@ class LyricsStreamer(commands.Cog):
                 traceback.print_exc()
     
     async def fetch_lyrics(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
-        """LRCLIBから歌詞を取得"""
+        """複数のAPIから歌詞を取得（フォールバック機能付き）"""
+        
+        # 1. LRCLIB API（最優先、無料で高品質）
+        lyrics = await self._fetch_from_lrclib(track_title, artist, duration)
+        if lyrics:
+            logger.info(f"✅ Lyrics found on LRCLIB: {len(lyrics)} lines")
+            return lyrics
+        
+        # 2. Musixmatch API（フォールバック1）
+        lyrics = await self._fetch_from_musixmatch(track_title, artist)
+        if lyrics:
+            logger.info(f"✅ Lyrics found on Musixmatch: {len(lyrics)} lines")
+            return lyrics
+        
+        # 3. Genius API（フォールバック2、タイムスタンプなしの場合は推定）
+        lyrics = await self._fetch_from_genius(track_title, artist, duration)
+        if lyrics:
+            logger.info(f"✅ Lyrics found on Genius: {len(lyrics)} lines")
+            return lyrics
+        
+        logger.warning(f"❌ No lyrics found for: {track_title} by {artist}")
+        return None
+    
+    async def _fetch_from_lrclib(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
+        """LRCLIB APIから歌詞を取得"""
         try:
             params = {
                 'track_name': track_title,
@@ -219,27 +247,136 @@ class LyricsStreamer(commands.Cog):
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(LRCLIB_API, params=params) as response:
+                async with session.get(LRCLIB_API, params=params, timeout=aiohttp.ClientTimeout(total=5)) as response:
                     if response.status != 200:
-                        logger.warning(f"⚠️ LRCLIB returned {response.status}")
+                        logger.debug(f"LRCLIB returned {response.status}")
                         return None
                     
                     data = await response.json()
-                    
-                    # syncedLyrics（タイムスタンプ付き）を取得
                     synced_lyrics = data.get('syncedLyrics')
+                    
                     if not synced_lyrics:
-                        logger.info("ℹ️ No synced lyrics available")
+                        logger.debug("No synced lyrics on LRCLIB")
                         return None
                     
-                    # LRC形式をパース
-                    lyrics = self._parse_lrc(synced_lyrics)
-                    logger.info(f"✅ Fetched {len(lyrics)} lyrics lines")
-                    return lyrics
+                    return self._parse_lrc(synced_lyrics)
             
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch lyrics: {e}")
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ LRCLIB timeout")
             return None
+        except Exception as e:
+            logger.debug(f"LRCLIB error: {e}")
+            return None
+    
+    async def _fetch_from_musixmatch(self, track_title: str, artist: str) -> Optional[List[LyricsLine]]:
+        """Musixmatch APIから歌詞を取得"""
+        try:
+            # Musixmatch APIキーが必要（環境変数から取得）
+            api_key = os.getenv('MUSIXMATCH_API_KEY')
+            if not api_key:
+                logger.debug("Musixmatch API key not configured")
+                return None
+            
+            async with aiohttp.ClientSession() as session:
+                # 1. 曲を検索
+                search_url = f"{MUSIXMATCH_API}/track.search"
+                search_params = {
+                    'apikey': api_key,
+                    'q_track': track_title,
+                    'q_artist': artist,
+                    'page_size': 1,
+                    'page': 1,
+                    's_track_rating': 'desc'
+                }
+                
+                async with session.get(search_url, params=search_params, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status != 200:
+                        return None
+                    
+                    data = await response.json()
+                    track_list = data.get('message', {}).get('body', {}).get('track_list', [])
+                    
+                    if not track_list:
+                        return None
+                    
+                    track_id = track_list[0]['track']['track_id']
+                
+                # 2. 歌詞を取得
+                lyrics_url = f"{MUSIXMATCH_API}/track.lyrics.get"
+                lyrics_params = {
+                    'apikey': api_key,
+                    'track_id': track_id
+                }
+                
+                async with session.get(lyrics_url, params=lyrics_params, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status != 200:
+                        return None
+                    
+                    data = await response.json()
+                    lyrics_body = data.get('message', {}).get('body', {}).get('lyrics', {}).get('lyrics_body')
+                    
+                    if not lyrics_body:
+                        return None
+                    
+                    # タイムスタンプなしの歌詞を推定タイムスタンプ付きに変換
+                    return self._estimate_timestamps(lyrics_body)
+        
+        except Exception as e:
+            logger.debug(f"Musixmatch error: {e}")
+            return None
+    
+    async def _fetch_from_genius(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
+        """Genius APIから歌詞を取得"""
+        try:
+            # Genius APIキーが必要（環境変数から取得）
+            api_key = os.getenv('GENIUS_API_KEY')
+            if not api_key:
+                logger.debug("Genius API key not configured")
+                return None
+            
+            async with aiohttp.ClientSession() as session:
+                # 曲を検索
+                search_url = f"{GENIUS_API}/search"
+                headers = {'Authorization': f'Bearer {api_key}'}
+                params = {'q': f"{track_title} {artist}"}
+                
+                async with session.get(search_url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status != 200:
+                        return None
+                    
+                    data = await response.json()
+                    hits = data.get('response', {}).get('hits', [])
+                    
+                    if not hits:
+                        return None
+                    
+                    # Genius APIは歌詞本文を直接提供しないため、
+                    # スクレイピングが必要（ここでは簡易実装）
+                    # 実際の実装では lyrics-extractor などのライブラリを使用
+                    logger.debug("Genius API requires web scraping for lyrics")
+                    return None
+        
+        except Exception as e:
+            logger.debug(f"Genius error: {e}")
+            return None
+    
+    def _estimate_timestamps(self, lyrics_text: str, duration: int = 180000) -> List[LyricsLine]:
+        """タイムスタンプなしの歌詞に推定タイムスタンプを付与"""
+        lines = [line.strip() for line in lyrics_text.split('\n') if line.strip()]
+        
+        if not lines:
+            return []
+        
+        # 曲の長さを行数で割って、均等に配置
+        duration_sec = duration / 1000.0
+        interval = duration_sec / len(lines)
+        
+        lyrics = []
+        for i, line in enumerate(lines):
+            timestamp = i * interval
+            lyrics.append(LyricsLine(timestamp, line))
+        
+        return lyrics
     
     def _parse_lrc(self, lrc_text: str) -> List[LyricsLine]:
         """LRC形式の歌詞をパース"""
