@@ -314,6 +314,7 @@ class MusicPlayer(commands.Cog):
     ])
     async def play(self, interaction: discord.Interaction, query: str, source: str = "auto"):
         """Play music command with source selection"""
+        # ✅ すぐにdeferして3秒タイムアウトを回避
         await interaction.response.defer()
         
         try:
@@ -321,6 +322,9 @@ class MusicPlayer(commands.Cog):
             if not interaction.user.voice:
                 await interaction.followup.send("❌ ボイスチャンネルに参加してから使用してください。", ephemeral=True)
                 return
+            
+            # ✅ 検索開始メッセージ
+            search_msg = await interaction.followup.send(f"🔍 検索中: **{query}**", wait=True)
             
             tracks = []
             is_playlist = False
@@ -331,8 +335,8 @@ class MusicPlayer(commands.Cog):
             if SPOTIFY_REGEX.match(query):
                 # Spotify URL
                 tracks, is_playlist, playlist_name = await self.search_spotify(query)
-            elif YOUTUBE_REGEX.match(query) or query.startswith(('http://', 'https://')):
-                # YouTube URL or any URL - try direct search first
+            elif YOUTUBE_REGEX.match(query) or SOUNDCLOUD_REGEX.match(query) or query.startswith(('http://', 'https://')):
+                # URL detected - try direct search
                 logger.info(f"Detected URL: {query}")
                 try:
                     result = await wavelink.Playable.search(query)
@@ -344,16 +348,19 @@ class MusicPlayer(commands.Cog):
                     elif isinstance(result, list):
                         tracks = result
                         logger.info(f"Found {len(tracks)} tracks from URL")
-                    else:
-                        tracks = [result] if result else []
+                    elif result:
+                        tracks = [result]
                         logger.info(f"Found single track from URL")
+                    else:
+                        tracks = []
+                        logger.warning("No tracks found from URL")
                 except Exception as e:
                     logger.error(f"Error searching URL: {e}")
-                    # Fallback: try as YouTube search
-                    tracks = await wavelink.Playable.search(f"ytsearch:{query}")
-            elif SOUNDCLOUD_REGEX.match(query):
-                # SoundCloud URL
-                tracks = await wavelink.Playable.search(query)
+                    import traceback
+                    traceback.print_exc()
+                    await search_msg.delete()
+                    await interaction.followup.send(f"❌ URLの読み込みに失敗しました: {str(e)}", ephemeral=True)
+                    return
             else:
                 # Search by source - get multiple results for selection
                 show_selection = True
@@ -362,33 +369,39 @@ class MusicPlayer(commands.Cog):
                     tracks = tracks[:15] if tracks else []
                 elif source == "soundcloud":
                     tracks = await wavelink.Playable.search(f"scsearch:{query}")
-                    tracks = tracks[:15] if tracks else []
+                    tracks = tracks[:15] if isinstance(tracks, list) else ([tracks] if tracks else [])
                 else:
                     # Default: YouTube search - get 15 results
-                    # Always use ytsearch for better results
                     search_query = query
                     if any(word in query.lower() for word in ['リラックス', '作業', '盛り上がる', 'bgm', 'chill', '高音質']):
                         search_query = await self.ai_music_recommendation(query)
                     
                     logger.info(f"Searching YouTube: {search_query}")
-                    tracks = await wavelink.Playable.search(f"ytsearch:{search_query}")
+                    tracks = await wavelink.Playable.search(f"ytsearch15:{search_query}")
                     
-                    # If only 1 result, search again with more results
-                    if tracks and len(tracks) == 1:
-                        tracks = await wavelink.Playable.search(f"ytsearch15:{search_query}")
+                    if not tracks or len(tracks) == 0:
+                        # Retry with simpler query
+                        logger.info(f"Retrying with original query: {query}")
+                        tracks = await wavelink.Playable.search(f"ytsearch15:{query}")
                     
-                    tracks = tracks[:15] if tracks else []
+                    tracks = tracks[:15] if isinstance(tracks, list) else ([tracks] if tracks else [])
                     logger.info(f"Found {len(tracks)} tracks")
             
-            if not tracks:
-                await interaction.followup.send("❌ 曲が見つかりませんでした。", ephemeral=True)
+            # ✅ 検索メッセージを削除
+            try:
+                await search_msg.delete()
+            except:
+                pass
+            
+            if not tracks or len(tracks) == 0:
+                await interaction.followup.send(f"❌ 曲が見つかりませんでした: **{query}**", ephemeral=True)
                 return
             
             # Show selection UI if multiple tracks from search
             if show_selection and len(tracks) > 1:
                 embed = discord.Embed(
                     title="🎵 曲を選択してください",
-                    description=f"検索: **{query}**\n{len(tracks[:15])}件の結果",
+                    description=f"検索: **{query}**\n{len(tracks)}件の結果",
                     color=0xff0000
                 )
                 
