@@ -153,7 +153,11 @@ class LyricsStreamer(commands.Cog):
                 self.update_counter = 0
             
         except Exception as e:
-            logger.error(f"❌ Failed to log lyrics to Supabase: {e}")
+            # テーブルが存在しない場合は警告のみ（エラーを無視）
+            if 'does not exist' in str(e) or 'PGRST204' in str(e):
+                logger.warning(f"⚠️ lyrics_logs table does not exist. Please run add_lyrics_table.sql in Supabase.")
+            else:
+                logger.error(f"❌ Failed to log lyrics to Supabase: {e}")
     
     async def _cleanup_old_records(self):
         """古いレコードを削除して10万件以下に保つ"""
@@ -197,9 +201,13 @@ class LyricsStreamer(commands.Cog):
                     logger.info(f"✅ Deleted {len(ids_to_delete)} old lyrics records")
             
         except Exception as e:
-            logger.error(f"❌ Failed to cleanup old records: {e}")
-            import traceback
-            traceback.print_exc()
+            # テーブルが存在しない場合は警告のみ
+            if 'does not exist' in str(e) or 'PGRST204' in str(e):
+                logger.warning(f"⚠️ lyrics_logs table does not exist. Skipping cleanup.")
+            else:
+                logger.error(f"❌ Failed to cleanup old records: {e}")
+                import traceback
+                traceback.print_exc()
     
     async def fetch_lyrics(self, track_title: str, artist: str, duration: int) -> Optional[List[LyricsLine]]:
         """LRCLIBから歌詞を取得"""
