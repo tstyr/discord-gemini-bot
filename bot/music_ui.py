@@ -12,6 +12,29 @@ class MusicPlayerView(View):
         self.guild_id = guild_id
         self.message = None
         self.update_task = None
+        
+        # 歌詞ボタンの初期状態を設定
+        self._update_lyrics_button_state()
+    
+    def _update_lyrics_button_state(self):
+        """歌詞ボタンの状態を更新"""
+        try:
+            lyrics_cog = self.bot.get_cog('LyricsStreamer')
+            if lyrics_cog:
+                is_enabled = lyrics_cog.lyrics_enabled.get(self.guild_id, False)
+                
+                # 歌詞ボタンを探して更新
+                for item in self.children:
+                    if hasattr(item, 'callback') and item.callback.__name__ == 'toggle_lyrics':
+                        if is_enabled:
+                            item.style = discord.ButtonStyle.success
+                            item.label = "歌詞 ON"
+                        else:
+                            item.style = discord.ButtonStyle.secondary
+                            item.label = "歌詞"
+                        break
+        except Exception as e:
+            logger.error(f"Error updating lyrics button state: {e}")
     
     def get_music_cog(self):
         return self.bot.get_cog('MusicPlayer')
@@ -296,3 +319,78 @@ class MusicPlayerView(View):
         except Exception as e:
             logger.error(f"Error in add_to_playlist: {e}")
             await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+    
+    @discord.ui.button(emoji="🎤", label="歌詞", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_lyrics(self, interaction: discord.Interaction, button: Button):
+        """歌詞配信のON/OFF切り替え"""
+        try:
+            # 歌詞配信Cogを取得
+            lyrics_cog = self.bot.get_cog('LyricsStreamer')
+            if not lyrics_cog:
+                await interaction.response.send_message("❌ 歌詞機能が利用できません", ephemeral=True)
+                return
+            
+            # 現在の状態を取得
+            is_enabled = lyrics_cog.lyrics_enabled.get(self.guild_id, False)
+            
+            if is_enabled:
+                # OFFにする
+                lyrics_cog.lyrics_enabled[self.guild_id] = False
+                await lyrics_cog.stop_lyrics_for_guild(self.guild_id)
+                
+                embed = discord.Embed(
+                    title="⏹️ 歌詞配信を無効化しました",
+                    color=0xff4444
+                )
+                button.style = discord.ButtonStyle.secondary
+                button.label = "歌詞"
+                
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.message.edit(view=self)
+            else:
+                # ONにする
+                await interaction.response.defer(ephemeral=True)
+                
+                # チャンネルを作成または取得
+                guild = self.bot.get_guild(self.guild_id)
+                channel = await lyrics_cog.get_or_create_lyrics_channel(guild)
+                if not channel:
+                    await interaction.followup.send("❌ 歌詞チャンネルの作成に失敗しました。", ephemeral=True)
+                    return
+                
+                # Webhookを作成または取得
+                webhook = await lyrics_cog.get_or_create_webhook(guild, channel)
+                if not webhook:
+                    await interaction.followup.send("❌ Webhookの作成に失敗しました。", ephemeral=True)
+                    return
+                
+                # 有効化
+                lyrics_cog.lyrics_enabled[self.guild_id] = True
+                
+                # 現在再生中の曲の歌詞を開始
+                queue = self.get_queue()
+                if queue and queue.current:
+                    await lyrics_cog.start_lyrics_for_track(self.guild_id, queue.current)
+                
+                embed = discord.Embed(
+                    title="✅ 歌詞配信を有効化しました",
+                    description=f"歌詞は {channel.mention} にリアルタイムで配信されます。",
+                    color=0x00ff88
+                )
+                embed.add_field(name="精度", value="0.1秒間隔", inline=True)
+                embed.add_field(name="オフセット", value="0.5秒早め", inline=True)
+                
+                button.style = discord.ButtonStyle.success
+                button.label = "歌詞 ON"
+                
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.message.edit(view=self)
+        
+        except Exception as e:
+            logger.error(f"Error in toggle_lyrics: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
+            except:
+                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
