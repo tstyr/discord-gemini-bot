@@ -304,9 +304,9 @@ class ChannelManager(commands.Cog):
             )
             await interaction.edit_original_response(embed=error_embed)
     
-    @app_commands.command(name="list-ai-channels", description="AI専用チャンネルの一覧を表示します")
+    @app_commands.command(name="list-ai-channels", description="AI専用チャンネルと自動応答チャンネルの一覧を表示")
     async def list_ai_channels(self, interaction: discord.Interaction):
-        """List all AI channels in the guild"""
+        """List all AI channels and auto-response channels in the guild"""
         if not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("❌ この機能を使用するには「サーバー管理」権限が必要です。", ephemeral=True)
             return
@@ -318,9 +318,12 @@ class ChannelManager(commands.Cog):
             public_channels = await self.bot.database.get_public_channels(guild_id)
             private_channels = await self.bot.database.get_private_channels(guild_id)
             
+            # Get auto-response channels
+            chat_channels = await self.bot.database.get_chat_channels(guild_id)
+            
             embed = discord.Embed(
-                title="🤖 AI専用チャンネル一覧",
-                description=f"{interaction.guild.name} のAI専用チャンネル",
+                title="🤖 AIチャンネル一覧",
+                description=f"{interaction.guild.name} のAI関連チャンネル",
                 color=0xff66aa
             )
             
@@ -335,7 +338,7 @@ class ChannelManager(commands.Cog):
                         public_list.append(f"• 削除済みチャンネル (ID: {channel_data['channel_id']})")
                 
                 embed.add_field(
-                    name="📺 パブリックチャンネル",
+                    name="📺 AI専用パブリックチャンネル",
                     value="\n".join(public_list) if public_list else "なし",
                     inline=False
                 )
@@ -355,24 +358,50 @@ class ChannelManager(commands.Cog):
                         private_list.append(f"• 削除済みチャンネル - {user.display_name if user else '不明'}")
                 
                 embed.add_field(
-                    name="🔒 プライベートチャンネル",
+                    name="🔒 AI専用プライベートチャンネル",
                     value="\n".join(private_list) if private_list else "なし",
                     inline=False
                 )
             
-            if not public_channels and not private_channels:
+            # Auto-response channels
+            if chat_channels:
+                chat_list = []
+                for channel_id in chat_channels:
+                    channel = interaction.guild.get_channel(channel_id)
+                    if channel:
+                        chat_list.append(f"• <#{channel_id}> ({channel.name})")
+                    else:
+                        chat_list.append(f"• <#{channel_id}> (削除済み)")
+                
                 embed.add_field(
-                    name="📝 チャンネルなし",
-                    value="まだAI専用チャンネルが作成されていません。\n`/setup-public-chat` または `/setup-private-chat` で作成してください。",
+                    name="💬 AI自動応答チャンネル",
+                    value="\n".join(chat_list),
                     inline=False
                 )
             
-            embed.set_footer(text=f"合計: {len(public_channels) + len(private_channels)} チャンネル")
+            if not public_channels and not private_channels and not chat_channels:
+                embed.add_field(
+                    name="📝 チャンネルなし",
+                    value=(
+                        "まだAI関連チャンネルが設定されていません。\n\n"
+                        "**AI専用チャンネル作成:**\n"
+                        "• `/setup-public-chat` - パブリックチャンネル\n"
+                        "• `/setup-private-chat` - プライベートチャンネル\n\n"
+                        "**自動応答設定:**\n"
+                        "• `/setchannel` - 既存チャンネルで自動応答を有効化"
+                    ),
+                    inline=False
+                )
+            
+            total = len(public_channels) + len(private_channels) + len(chat_channels)
+            embed.set_footer(text=f"合計: {total} チャンネル")
             
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logger.error(f'Error listing AI channels: {e}')
+            import traceback
+            traceback.print_exc()
             await interaction.response.send_message("❌ チャンネル一覧の取得に失敗しました。", ephemeral=True)
 
 async def setup(bot):
