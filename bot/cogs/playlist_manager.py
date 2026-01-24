@@ -16,7 +16,17 @@ class PlaylistManager(commands.Cog):
     async def get_user_playlists(self, guild_id: int, user_id: int = None) -> List[dict]:
         """ユーザーまたはギルドのプレイリストを取得"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.warning("Supabase client not available")
+                return []
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return []
             
             query = self.bot.supabase_client.client.table('playlists').select('*')
@@ -34,13 +44,25 @@ class PlaylistManager(commands.Cog):
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching playlists: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     async def create_playlist(self, guild_id: int, name: str, creator_id: int, 
                             creator_name: str, description: str = None, is_public: bool = True) -> Optional[str]:
         """プレイリストを作成"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.error("Supabase client not available")
+                return None
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return None
             
             data = {
@@ -52,20 +74,36 @@ class PlaylistManager(commands.Cog):
                 'is_public': is_public
             }
             
+            logger.info(f"Creating playlist: {data}")
             result = self.bot.supabase_client.client.table('playlists').insert(data).execute()
             
             if result.data and len(result.data) > 0:
+                logger.info(f"Playlist created successfully: {result.data[0]['id']}")
                 return result.data[0]['id']
+            
+            logger.error("No data returned from playlist creation")
             return None
         except Exception as e:
             logger.error(f"Error creating playlist: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def add_track_to_playlist(self, playlist_id: str, track_title: str, track_url: str,
                                    track_author: str, duration_ms: int, added_by: str, added_by_id: int) -> bool:
         """プレイリストに曲を追加"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.error("Supabase client not available")
+                return False
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return False
             
             # 現在の曲数を取得してpositionを決定
@@ -87,16 +125,30 @@ class PlaylistManager(commands.Cog):
                 'position': position
             }
             
+            logger.info(f"Adding track to playlist: {track_title}")
             self.bot.supabase_client.client.table('playlist_tracks').insert(data).execute()
+            logger.info("Track added successfully")
             return True
         except Exception as e:
             logger.error(f"Error adding track to playlist: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     async def get_playlist_tracks(self, playlist_id: str) -> List[dict]:
         """プレイリストの曲を取得"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.warning("Supabase client not available")
+                return []
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return []
             
             result = self.bot.supabase_client.client.table('playlist_tracks')\
@@ -108,30 +160,58 @@ class PlaylistManager(commands.Cog):
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching playlist tracks: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     async def delete_playlist(self, playlist_id: str) -> bool:
         """プレイリストを削除"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.error("Supabase client not available")
+                return False
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return False
             
             self.bot.supabase_client.client.table('playlists').delete().eq('id', playlist_id).execute()
+            logger.info(f"Playlist deleted: {playlist_id}")
             return True
         except Exception as e:
             logger.error(f"Error deleting playlist: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     async def delete_track_from_playlist(self, track_id: str) -> bool:
         """プレイリストから曲を削除"""
         try:
-            if not self.bot.supabase_client or not self.bot.supabase_client.client:
+            if not self.bot.supabase_client:
+                logger.error("Supabase client not available")
+                return False
+            
+            # Try to get client, initialize if needed
+            if not hasattr(self.bot.supabase_client, 'client') or not self.bot.supabase_client.client:
+                logger.info("Initializing Supabase client...")
+                await self.bot.supabase_client.initialize()
+            
+            if not self.bot.supabase_client.client:
+                logger.error("Failed to initialize Supabase client")
                 return False
             
             self.bot.supabase_client.client.table('playlist_tracks').delete().eq('id', track_id).execute()
+            logger.info(f"Track deleted from playlist: {track_id}")
             return True
         except Exception as e:
             logger.error(f"Error deleting track: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @app_commands.command(name="playlist", description="プレイリスト管理")

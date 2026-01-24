@@ -320,18 +320,28 @@ class MusicPlayer(commands.Cog):
             if SPOTIFY_REGEX.match(query):
                 # Spotify URL
                 tracks, is_playlist, playlist_name = await self.search_spotify(query)
-            elif YOUTUBE_REGEX.match(query):
-                # YouTube URL
-                tracks = await wavelink.Playable.search(query)
-                if isinstance(tracks, wavelink.Playlist):
-                    is_playlist = True
-                    playlist_name = tracks.name
-                    tracks = tracks.tracks
+            elif YOUTUBE_REGEX.match(query) or query.startswith(('http://', 'https://')):
+                # YouTube URL or any URL - try direct search first
+                logger.info(f"Detected URL: {query}")
+                try:
+                    result = await wavelink.Playable.search(query)
+                    if isinstance(result, wavelink.Playlist):
+                        is_playlist = True
+                        playlist_name = result.name
+                        tracks = result.tracks
+                        logger.info(f"Found playlist: {playlist_name} with {len(tracks)} tracks")
+                    elif isinstance(result, list):
+                        tracks = result
+                        logger.info(f"Found {len(tracks)} tracks from URL")
+                    else:
+                        tracks = [result] if result else []
+                        logger.info(f"Found single track from URL")
+                except Exception as e:
+                    logger.error(f"Error searching URL: {e}")
+                    # Fallback: try as YouTube search
+                    tracks = await wavelink.Playable.search(f"ytsearch:{query}")
             elif SOUNDCLOUD_REGEX.match(query):
                 # SoundCloud URL
-                tracks = await wavelink.Playable.search(query)
-            elif query.startswith(('http://', 'https://')):
-                # Other URL
                 tracks = await wavelink.Playable.search(query)
             else:
                 # Search by source - get multiple results for selection
@@ -344,11 +354,20 @@ class MusicPlayer(commands.Cog):
                     tracks = tracks[:15] if tracks else []
                 else:
                     # Default: YouTube search - get 15 results
+                    # Always use ytsearch for better results
+                    search_query = query
                     if any(word in query.lower() for word in ['リラックス', '作業', '盛り上がる', 'bgm', 'chill', '高音質']):
-                        ai_query = await self.ai_music_recommendation(query)
-                        tracks = await wavelink.Playable.search(f"ytsearch15:{ai_query}")
-                    else:
-                        tracks = await wavelink.Playable.search(f"ytsearch15:{query}")
+                        search_query = await self.ai_music_recommendation(query)
+                    
+                    logger.info(f"Searching YouTube: {search_query}")
+                    tracks = await wavelink.Playable.search(f"ytsearch:{search_query}")
+                    
+                    # If only 1 result, search again with more results
+                    if tracks and len(tracks) == 1:
+                        tracks = await wavelink.Playable.search(f"ytsearch15:{search_query}")
+                    
+                    tracks = tracks[:15] if tracks else []
+                    logger.info(f"Found {len(tracks)} tracks")
             
             if not tracks:
                 await interaction.followup.send("❌ 曲が見つかりませんでした。", ephemeral=True)

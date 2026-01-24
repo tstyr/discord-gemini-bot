@@ -375,31 +375,48 @@ class DiscordBot(commands.Bot):
                             is_playlist = True
                             playlist_name = result.name
                         else:
-                            tracks = result if result else []
+                            tracks = [result] if result and not isinstance(result, list) else (result if result else [])
                     except Exception as e:
                         logger.error(f"Spotify load failed: {e}")
+                        import traceback
+                        traceback.print_exc()
                         
-                elif YOUTUBE_REGEX.match(url):
+                elif YOUTUBE_REGEX.match(url) or url.startswith(('http://', 'https://')):
                     source_type = "youtube"
-                    logger.info("Detected YouTube URL")
+                    logger.info(f"Detected URL (YouTube or generic): {url}")
                     try:
                         result = await wavelink.Playable.search(url)
+                        logger.info(f"Search result type: {type(result)}")
+                        
                         if isinstance(result, wavelink.Playlist):
                             tracks = result.tracks
                             is_playlist = True
                             playlist_name = result.name
+                            logger.info(f"Found playlist: {playlist_name} with {len(tracks)} tracks")
+                        elif isinstance(result, list):
+                            tracks = result
+                            logger.info(f"Found {len(tracks)} tracks from URL")
+                        elif result:
+                            tracks = [result]
+                            logger.info(f"Found single track from URL: {result.title if hasattr(result, 'title') else 'Unknown'}")
                         else:
-                            tracks = result if result else []
+                            tracks = []
+                            logger.warning("No tracks found from URL")
                     except Exception as e:
-                        logger.error(f"YouTube load failed: {e}")
+                        logger.error(f"URL load failed: {e}")
+                        import traceback
+                        traceback.print_exc()
                         
                 elif SOUNDCLOUD_REGEX.match(url):
                     source_type = "soundcloud"
                     logger.info("Detected SoundCloud URL")
                     try:
-                        tracks = await wavelink.Playable.search(url)
+                        result = await wavelink.Playable.search(url)
+                        tracks = [result] if result and not isinstance(result, list) else (result if result else [])
                     except Exception as e:
                         logger.error(f"SoundCloud load failed: {e}")
+                        import traceback
+                        traceback.print_exc()
             
             # If no URL or URL failed, search by text
             if not tracks:
@@ -423,12 +440,19 @@ class DiscordBot(commands.Bot):
                     source_type = "youtube"
                     
                     try:
-                        # ✅ 検索精度向上: ytsearchプレフィックスを強制
-                        search_query = f"ytsearch15:{recommendation_query}"
+                        # ✅ 検索精度向上: ytsearchプレフィックスを使用
+                        # まず単一検索で試す
+                        search_query = f"ytsearch:{recommendation_query}"
                         logger.info(f"Searching YouTube with query: {search_query}")
                         
-                        # Use wavelink ytsearch to get multiple results (15 tracks)
+                        # Use wavelink ytsearch to get results
                         search_tracks = await wavelink.Playable.search(search_query)
+                        
+                        # If only 1 result or want more options, search for 15
+                        if search_tracks and len(search_tracks) == 1:
+                            search_query = f"ytsearch15:{recommendation_query}"
+                            logger.info(f"Getting more results with: {search_query}")
+                            search_tracks = await wavelink.Playable.search(search_query)
                         
                         if search_tracks and len(search_tracks) > 1:
                             # Show selection UI with multiple results
@@ -468,7 +492,7 @@ class DiscordBot(commands.Bot):
                             return True
                         elif search_tracks:
                             # Only one result, use it directly
-                            tracks = search_tracks
+                            tracks = search_tracks if isinstance(search_tracks, list) else [search_tracks]
                             logger.info(f"Found {len(tracks)} track(s)")
                     except Exception as e:
                         logger.error(f"❌ Wavelink ytsearch failed: {e}")
