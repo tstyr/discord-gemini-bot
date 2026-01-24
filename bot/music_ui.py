@@ -228,16 +228,44 @@ class MusicPlayerView(View):
     @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, row=1)
     async def loop(self, interaction: discord.Interaction, button: Button):
         """Toggle loop mode"""
-        queue = self.get_queue()
-        if queue:
+        try:
+            queue = self.get_queue()
+            vc = self.get_vc()
+            
+            if not queue:
+                await interaction.response.send_message("❌ キューが見つかりません", ephemeral=True)
+                return
+            
+            if not vc or not vc.playing:
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+                return
+            
+            # ループモードを切り替え
             modes = ["off", "track", "queue"]
             current_idx = modes.index(queue.loop_mode) if queue.loop_mode in modes else 0
             queue.loop_mode = modes[(current_idx + 1) % 3]
             
-            mode_text = {"off": "オフ", "track": "1曲リピート", "queue": "全曲リピート"}
+            mode_text = {"off": "➡️ オフ", "track": "🔂 1曲リピート", "queue": "🔁 全曲リピート"}
+            
+            # Embedを更新
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
-            await interaction.response.defer()
+            
+            # ループモード変更を通知
+            await interaction.followup.send(
+                f"ループモード: {mode_text.get(queue.loop_mode, '➡️ オフ')}",
+                ephemeral=True
+            )
+            
+            logger.info(f"Loop mode changed to: {queue.loop_mode}")
+            
+        except Exception as e:
+            logger.error(f"Error in loop button: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+            except:
+                await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
     
     @discord.ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, row=1)
     async def vol_down(self, interaction: discord.Interaction, button: Button):

@@ -357,6 +357,25 @@ class LyricsStreamer(commands.Cog):
                 'duration': track.length
             }
             
+            # 歌詞チャンネルを取得
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                return
+            
+            lyrics_channel_id = self.lyrics_channels.get(guild_id)
+            if not lyrics_channel_id:
+                return
+            
+            lyrics_channel = guild.get_channel(lyrics_channel_id)
+            if not lyrics_channel:
+                return
+            
+            # 歌詞を取得中メッセージ
+            try:
+                searching_msg = await lyrics_channel.send(f"🔍 歌詞を検索中: **{track.title}**")
+            except:
+                searching_msg = None
+            
             # 歌詞を取得
             logger.info(f"🎤 Fetching lyrics for: {track.title}")
             lyrics = await self.fetch_lyrics(
@@ -365,18 +384,54 @@ class LyricsStreamer(commands.Cog):
                 track.length
             )
             
+            # 検索中メッセージを削除
+            if searching_msg:
+                try:
+                    await searching_msg.delete()
+                except:
+                    pass
+            
             if lyrics:
                 self.current_lyrics[guild_id] = lyrics
                 self.lyrics_index[guild_id] = 0
+                
+                # 成功メッセージ
+                embed = discord.Embed(
+                    title="✅ 歌詞を取得しました",
+                    description=f"**{track.title}**\n{len(lyrics)}行の歌詞を配信します",
+                    color=0x00ff88
+                )
+                if getattr(track, 'artwork', None):
+                    embed.set_thumbnail(url=track.artwork)
+                
+                try:
+                    await lyrics_channel.send(embed=embed, delete_after=5)
+                except:
+                    pass
+                
                 logger.info(f"✅ Lyrics loaded: {len(lyrics)} lines")
             else:
-                logger.info("ℹ️ No lyrics available for this track")
-                # 歌詞がない場合はクリア
+                # 歌詞が見つからない
                 self.current_lyrics.pop(guild_id, None)
                 self.lyrics_index.pop(guild_id, None)
+                
+                embed = discord.Embed(
+                    title="❌ 歌詞が見つかりませんでした",
+                    description=f"**{track.title}**\nこの曲の歌詞は利用できません",
+                    color=0xff4444
+                )
+                
+                try:
+                    await lyrics_channel.send(embed=embed, delete_after=10)
+                except:
+                    pass
+                
+                logger.info("ℹ️ No lyrics available for this track")
             
         except Exception as e:
             logger.error(f"❌ Failed to start lyrics: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def stop_lyrics_for_guild(self, guild_id: int):
         """ギルドの歌詞配信を停止"""
