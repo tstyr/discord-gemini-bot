@@ -72,6 +72,7 @@ class DiscordBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.guilds = True
+        intents.members = True  # ✅ メンバー数取得のため
         
         super().__init__(
             command_prefix='!',
@@ -85,6 +86,7 @@ class DiscordBot(commands.Bot):
         self.api_server = None
         self.start_time = time.time()  # Track bot start time
         self.is_maintenance = False  # Maintenance mode flag
+        self.status_task = None  # ✅ ステータスローテーションタスク
         
     async def setup_hook(self):
         """Called when the bot is starting up"""
@@ -137,6 +139,13 @@ class DiscordBot(commands.Bot):
         except Exception as e:
             logger.error(f'❌ Failed to sync global commands: {e}')
         
+        # ✅ Start status rotation
+        if not hasattr(self, 'status_task') or self.status_task.done():
+            self.status_task = asyncio.create_task(self._status_rotation())
+        
+        # ✅ Resume music sessions from Supabase
+        await self._resume_music_sessions()
+        
         # Send restart notification to all chat channels
         for guild in self.guilds:
             chat_channels = await self.database.get_chat_channels(guild.id)
@@ -144,9 +153,155 @@ class DiscordBot(commands.Bot):
                 channel = guild.get_channel(channel_id)
                 if channel:
                     try:
-                        await channel.send("🔄 Botが再起動しました。音楽機能が利用可能です。")
+                        await channel.send("🔄 Bot restarted. Music sessions resumed.")
                     except:
                         pass
+    
+    async def _status_rotation(self):
+        """Rotate bot status every 10 seconds"""
+        await self.wait_until_ready()
+        
+        status_index = 0
+        while not self.is_closed():
+            try:
+                import psutil
+                
+                # Get system stats
+                cpu_usage = psutil.cpu_percent(interval=0.1)
+                memory = psutil.virtual_memory()
+                ram_usage = memory.percent
+                ping = round(self.latency * 1000)  # ms
+                
+                # Get uptime
+                uptime_seconds = int(time.time() - self.start_time)
+                uptime_hours = uptime_seconds // 3600
+                uptime_minutes = (uptime_seconds % 3600) // 60
+                
+                # Get total members across all guilds
+                total_members = sum(guild.member_count for guild in self.guilds if guild.member_count)
+                
+                # Rotate status
+                statuses = [
+                    f"CPU: {cpu_usage:.1f}% | RAM: {ram_usage:.1f}% | Ping: {ping}ms",
+                    f"Uptime: {uptime_hours}h {uptime_minutes}m",
+                    f"Servers: {len(self.guilds)} | Members: {total_members:,}"
+                ]
+                
+                status_text = statuses[status_index % len(statuses)]
+                await self.change_presence(
+                    activity=discord.Activity(
+                        type=discord.ActivityType.watching,
+                        name=status_text
+                    )
+                )
+                
+                status_index += 1
+                await asyncio.sleep(10)
+                
+            except Exception as e:
+                logger.error(f"Error in status rotation: {e}")
+                await asyncio.sleep(10)
+    
+    async def _resume_music_sessions(self):
+        """Resume music sessions from Supabase after restart"""
+        try:
+            if not self.supabase_client or not self.supabase_client.client:
+                logger.info("Supabase not available, skipping session resume")
+                return
+            
+            # Get active sessions from Supabase
+            result = self.supabase_client.client.table('active_sessions')\
+                .select('*')\
+                .eq('is_playing', True)\
+                .execute()
+            
+            if not result.data:
+                logger.info("No active sessions to resume")
+                return
+            
+            logger.info(f"Found {len(result.data)} active sessions to resume")
+            
+            music_cog = self.get_cog('MusicPlayer')
+            if not music_cog:
+                logger.warning("Music player cog not loaded, cannot resume sessions")
+                return
+            
+            for session in result.data:
+                try:
+                    guild_id = int(session['guild_id'])
+                    guild = self.get_guild(guild_id)
+                    
+                    if not guild:
+                        logger.warning(f"Guild {guild_id} not found")
+                        continue
+                    
+                    # Find voice channel with members
+                    voice_channel = None
+                    for vc in guild.voice_channels:
+                        if len(vc.members) > 0:
+                            voice_channel = vc
+                            break
+                    
+                    if not voice_channel:
+                        logger.info(f"No voice channel with members in {guild.name}")
+                        # Clear session
+                        await self.supabase_client.update_active_session(guild_id, None)
+                        continue
+                    
+                    # Get track info
+                    track_title = session.get('track_title')
+                    if not track_title:
+                        continue
+                    
+                    logger.info(f"Resuming session in {guild.name}: {track_title}")
+                    
+                    # Search for the track
+                    import wavelink
+                    tracks = await wavelink.Playable.search(f"ytsearch:{track_title}")
+                    
+                    if not tracks or len(tracks) == 0:
+                        logger.warning(f"Could not find track: {track_title}")
+                        continue
+                    
+                    track = tracks[0]
+                    
+                    # Connect to voice channel
+                    if not guild.voice_client:
+                        vc = await voice_channel.connect(cls=wavelink.Player)
+                    else:
+                        vc = guild.voice_client
+                    
+                    # Play the track
+                    await vc.play(track)
+                    
+                    # Seek to position if available
+                    position_ms = session.get('position_ms', 0)
+                    if position_ms > 0:
+                        await vc.seek(position_ms)
+                    
+                    # Update queue
+                    queue = music_cog.get_queue(guild_id)
+                    queue.current = track
+                    
+                    logger.info(f"✅ Resumed session in {guild.name}")
+                    
+                    # Send notification
+                    text_channel = guild.system_channel or guild.text_channels[0] if guild.text_channels else None
+                    if text_channel:
+                        try:
+                            await text_channel.send(f"🔄 Resumed playing: **{track_title}**")
+                        except:
+                            pass
+                
+                except Exception as e:
+                    logger.error(f"Error resuming session: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+        except Exception as e:
+            logger.error(f"Error in _resume_music_sessions: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def on_guild_join(self, guild):
         """Called when bot joins a new guild"""
@@ -935,6 +1090,11 @@ async def main():
 async def shutdown(bot):
     """Graceful shutdown"""
     logger.info("🔄 Starting graceful shutdown...")
+    
+    # ✅ Cancel status rotation task
+    if hasattr(bot, 'status_task') and bot.status_task and not bot.status_task.done():
+        bot.status_task.cancel()
+        logger.info("✅ Status rotation task cancelled")
     
     # Stop music in all guilds
     for guild in bot.guilds:
