@@ -128,12 +128,13 @@ class DiscordBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         
-        # Sync slash commands globally first
+        # Sync slash commands globally ONCE
+        # グローバルコマンドは全ギルドで自動的に利用可能
         try:
             synced = await self.tree.sync()
-            logger.info(f'Synced {len(synced)} global commands')
+            logger.info(f'✅ Synced {len(synced)} global commands')
         except Exception as e:
-            logger.error(f'Failed to sync global commands: {e}')
+            logger.error(f'❌ Failed to sync global commands: {e}')
         
         # Send restart notification to all chat channels
         for guild in self.guilds:
@@ -147,14 +148,11 @@ class DiscordBot(commands.Bot):
                         pass
     
     async def on_guild_join(self, guild):
-        """Called when bot joins a new guild - sync commands"""
-        logger.info(f'Joined new guild: {guild.name} ({guild.id})')
-        try:
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            logger.info(f'Synced {len(synced)} commands to new guild: {guild.name}')
-        except Exception as e:
-            logger.error(f'Failed to sync commands to {guild.name}: {e}')
+        """Called when bot joins a new guild"""
+        logger.info(f'✅ Joined new guild: {guild.name} ({guild.id})')
+        # グローバルコマンドは自動的に利用可能なので、ギルド固有の同期は不要
+        # ギルド固有のコマンドがある場合のみ同期する
+        # 現在は全てグローバルコマンドなので何もしない
     
     async def on_message(self, message):
         """Handle incoming messages"""
