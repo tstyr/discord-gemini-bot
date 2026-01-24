@@ -116,6 +116,14 @@ class MusicPlayer(commands.Cog):
                     import traceback
                     traceback.print_exc()
                 
+                # ✅ 歌詞配信を開始
+                try:
+                    lyrics_cog = self.bot.get_cog('LyricsStreamer')
+                    if lyrics_cog:
+                        await lyrics_cog.start_lyrics_for_track(player.guild.id, track)
+                except Exception as e:
+                    logger.error(f"❌ Failed to start lyrics: {e}")
+                
                 # Count voice channel members
                 voice_channel = player.channel
                 members_count = len(voice_channel.members) - 1 if voice_channel else 0  # Exclude bot
@@ -735,6 +743,15 @@ class MusicPlayer(commands.Cog):
                 if reason in ['LOAD_FAILED', 'CLEANUP', 'REPLACED']:
                     logger.warning(f"Track ended with reason: {reason}, not processing")
                     return
+            
+            # ✅ 歌詞配信を停止
+            if player and player.guild:
+                try:
+                    lyrics_cog = self.bot.get_cog('LyricsStreamer')
+                    if lyrics_cog:
+                        await lyrics_cog.stop_lyrics_for_guild(player.guild.id)
+                except Exception as e:
+                    logger.error(f"❌ Failed to stop lyrics: {e}")
             
             # Check if player is still connected
             if not player or not player.connected:
