@@ -235,55 +235,58 @@ class MusicPlayer(commands.Cog):
             return []
     
     async def ai_music_recommendation(self, user_message: str, conversation_context: str = "") -> str:
-        """Extract search query from user message"""
+        """Extract search query from user message - prioritize direct extraction"""
         try:
             # まず、メッセージから直接曲名/アーティスト名を抽出
             # 「流して」「かけて」「再生して」などを除去
             clean_message = user_message
-            remove_words = ['流して', 'ながして', 'かけて', '再生して', '聞きたい', '聴きたい', 
-                           '聞かせて', 'きかせて', 'プレイして', 'play', '曲', 'の曲', '音楽']
+            remove_words = [
+                '流して', 'ながして', 'かけて', '再生して', 
+                '聞きたい', '聴きたい', '聞かせて', 'きかせて', 
+                'プレイして', 'play', 'して', 'の曲', '音楽',
+                'を', 'が', 'は', 'も', 'ね', 'よ', 'な'
+            ]
             for word in remove_words:
-                clean_message = clean_message.replace(word, '')
+                clean_message = clean_message.replace(word, ' ')
+            
+            # 複数スペースを1つに
+            clean_message = ' '.join(clean_message.split())
             clean_message = clean_message.strip()
             
-            # クリーンなメッセージがあればそれを使う
-            if clean_message and len(clean_message) > 2:
+            # クリーンなメッセージがあればそれを使う（優先）
+            if clean_message and len(clean_message) > 1:
                 logger.info(f"Using cleaned query: {clean_message}")
                 return clean_message
             
-            # AIで検索クエリを生成
-            prompt = f"""あなたはYouTube検索クエリ生成器です。
-ユーザーの入力から、YouTube Music検索に最適な検索クエリを生成してください。
+            # 曖昧なリクエストの場合のみAIを使用
+            if any(word in user_message.lower() for word in ['リラックス', '作業', '盛り上がる', 'bgm', 'chill', '気分']):
+                prompt = f"""以下のリクエストに最適なYouTube検索クエリを1つだけ出力してください。
 
-入力: "{user_message}"
+リクエスト: {user_message}
 
 ルール:
-1. 検索クエリのみを出力（説明や絵文字は不要）
-2. アーティスト名と曲名が含まれていればそのまま使用
-3. 「流して」「再生して」などの指示語は除去
-4. 曖昧な場合は一般的な検索語を生成
-
-出力例:
-- 入力「YOASOBIのアイドル流して」→ 出力「YOASOBI アイドル」
-- 入力「リラックスできる曲」→ 出力「relaxing music chill」
-- 入力「作業用BGM」→ 出力「lo-fi study beats」
+- 検索クエリのみ出力（説明不要）
+- 英語と日本語を組み合わせてOK
+- 具体的なジャンルやキーワードを含める
 
 検索クエリ:"""
+                
+                response = await self.bot.gemini_client.generate_response(
+                    prompt,
+                    mode='assistant'
+                )
+                
+                if response:
+                    # 余計な文字を除去
+                    result = response.strip()
+                    result = result.replace('🎵', '').replace('音楽を再生しますね', '').strip()
+                    # 改行があれば最初の行のみ
+                    result = result.split('\n')[0].strip()
+                    if result and len(result) > 2 and '再生' not in result:
+                        logger.info(f"AI generated query: {result}")
+                        return result
             
-            response = await self.bot.gemini_client.generate_response(
-                prompt,
-                mode='assistant'
-            )
-            
-            if response:
-                # 余計な文字を除去
-                result = response.strip()
-                result = result.replace('🎵', '').replace('音楽を再生しますね', '').strip()
-                if result and len(result) > 2 and '再生' not in result:
-                    logger.info(f"AI generated query: {result}")
-                    return result
-            
-            # フォールバック: クリーンなメッセージを返す
+            # フォールバック: クリーンなメッセージまたは元のメッセージ
             return clean_message if clean_message else user_message
             
         except Exception as e:
