@@ -912,6 +912,13 @@ class PlaybackModeView(discord.ui.View):
                 
                 # Create player UI with buttons
                 try:
+                    import sys
+                    import os
+                    # Add parent directory to path if not already there
+                    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    if parent_dir not in sys.path:
+                        sys.path.insert(0, parent_dir)
+                    
                     from music_ui import MusicPlayerView
                     view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
                     embed = view.create_embed()
@@ -1257,6 +1264,13 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 
                 # Create player UI with buttons
                 try:
+                    import sys
+                    import os
+                    # Add parent directory to path if not already there
+                    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    if parent_dir not in sys.path:
+                        sys.path.insert(0, parent_dir)
+                    
                     from music_ui import MusicPlayerView
                     view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
                     embed = view.create_embed()
