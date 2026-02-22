@@ -857,77 +857,97 @@ class PlaybackModeView(discord.ui.View):
         try:
             # Respond immediately to avoid timeout
             await interaction.response.defer()
-        except:
-            # If already responded, edit instead
-            pass
+            logger.info("Discord playback button clicked")
+        except Exception as e:
+            logger.error(f"Error deferring response: {e}")
         
         try:
             # Get or create music channel
             music_channel = await self.music_cog.create_music_channel(interaction.guild, interaction.user)
+            logger.info(f"Music channel ready: {music_channel.name}")
             
             # Connect to voice channel
             if not interaction.guild.voice_client:
                 vc = await music_channel.connect(cls=wavelink.Player)
+                logger.info("Connected to voice channel")
             else:
                 vc = interaction.guild.voice_client
+                logger.info("Using existing voice connection")
             
             queue = self.music_cog.get_queue(interaction.guild.id)
             
             # ✅ Store requester info in track extras
             self.track.extras.requester_name = interaction.user.display_name
             self.track.extras.requester_id = interaction.user.id
+            logger.info(f"Set requester info: {interaction.user.display_name}")
             
             if not vc.playing:
+                logger.info(f"Starting playback: {self.track.title}")
                 await vc.play(self.track)
                 queue.current = self.track
+                logger.info("Playback started successfully")
+                
                 # Analytics tracking
-                await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
-                # Save playback history
-                await self.music_cog.bot.database.save_playback_history(
-                    guild_id=interaction.guild.id,
-                    track_title=self.track.title,
-                    track_author=getattr(self.track, 'author', 'Unknown'),
-                    track_artwork=getattr(self.track, 'artwork', None),
-                    track_uri=self.track.uri,
-                    track_length=self.track.length,
-                    requester_id=interaction.user.id,
-                    requester_name=interaction.user.display_name
-                )
-                
-                # Create player UI with buttons
-                from music_ui import MusicPlayerView
-                view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
-                embed = view.create_embed()
-                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=False)
-                
                 try:
-                    player_message = await interaction.followup.send(embed=embed, view=view)
-                    view.message = player_message
-                    await view.start_update_loop()
-                except:
-                    # Fallback without UI
-                    embed = discord.Embed(
-                        title="📻 Discord VCで再生開始",
-                        description=f"**{self.track.title}**",
-                        color=0xaa66ff
+                    await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                    logger.info("Analytics updated")
+                except Exception as e:
+                    logger.error(f"Error updating analytics: {e}")
+                
+                # Save playback history
+                try:
+                    await self.music_cog.bot.database.save_playback_history(
+                        guild_id=interaction.guild.id,
+                        track_title=self.track.title,
+                        track_author=getattr(self.track, 'author', 'Unknown'),
+                        track_artwork=getattr(self.track, 'artwork', None),
+                        track_uri=self.track.uri,
+                        track_length=self.track.length,
+                        requester_id=interaction.user.id,
+                        requester_name=interaction.user.display_name
                     )
-                    await interaction.followup.send(embed=embed)
+                    logger.info("Playback history saved")
+                except Exception as e:
+                    logger.error(f"Error saving playback history: {e}")
+                
+                # Create simple embed
+                embed = discord.Embed(
+                    title="📻 Discord VCで再生開始",
+                    description=f"**{self.track.title}**\n{getattr(self.track, 'author', 'Unknown')}",
+                    color=0xaa66ff
+                )
+                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                
+                duration_sec = self.track.length // 1000
+                duration_min = duration_sec // 60
+                duration_sec = duration_sec % 60
+                embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
+                
+                if hasattr(self.track, 'artwork') and self.track.artwork:
+                    embed.set_thumbnail(url=self.track.artwork)
+                
+                await interaction.followup.send(embed=embed)
+                logger.info("Sent playback confirmation")
                 
                 # Broadcast to WebSocket
-                if self.music_cog.bot.api_server:
-                    await self.music_cog.bot.api_server.broadcast_music_event({
-                        'type': 'track_start',
-                        'guild_id': interaction.guild.id,
-                        'playback_mode': 'discord',
-                        'track': {
-                            'title': self.track.title,
-                            'author': getattr(self.track, 'author', 'Unknown'),
-                            'length': self.track.length,
-                            'artwork': getattr(self.track, 'artwork', None),
-                            'uri': self.track.uri
-                        },
-                        'requester': interaction.user.display_name
-                    })
+                try:
+                    if self.music_cog.bot.api_server:
+                        await self.music_cog.bot.api_server.broadcast_music_event({
+                            'type': 'track_start',
+                            'guild_id': interaction.guild.id,
+                            'playback_mode': 'discord',
+                            'track': {
+                                'title': self.track.title,
+                                'author': getattr(self.track, 'author', 'Unknown'),
+                                'length': self.track.length,
+                                'artwork': getattr(self.track, 'artwork', None),
+                                'uri': self.track.uri
+                            },
+                            'requester': interaction.user.display_name
+                        })
+                        logger.info("Broadcast music event")
+                except Exception as e:
+                    logger.error(f"Error broadcasting event: {e}")
             else:
                 queue.add(self.track)
                 embed = discord.Embed(
@@ -936,13 +956,16 @@ class PlaybackModeView(discord.ui.View):
                     color=0x00ffcc
                 )
                 await interaction.followup.send(embed=embed)
+                logger.info(f"Added to queue: {self.track.title}")
                 
         except Exception as e:
             logger.error(f"Error in Discord playback: {e}")
+            import traceback
+            traceback.print_exc()
             try:
                 await interaction.followup.send("❌ Discord再生でエラーが発生しました。", ephemeral=True)
             except:
-                pass
+                logger.error("Failed to send error message")
         
         self.stop()
     
@@ -1137,6 +1160,7 @@ class SlashCommandTrackSelectionView(discord.ui.View):
             import wavelink
             
             track = self.tracks[index]
+            logger.info(f"Playing selected track: {track.title}")
             
             # Disable all buttons
             for item in self.children:
@@ -1150,78 +1174,112 @@ class SlashCommandTrackSelectionView(discord.ui.View):
             )
             try:
                 await interaction.edit_original_response(embed=embed, view=self)
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error updating embed: {e}")
             
             # Create or get music channel
-            music_channel = await self.music_cog.create_music_channel(
-                interaction.guild, 
-                interaction.user
-            )
+            try:
+                music_channel = await self.music_cog.create_music_channel(
+                    interaction.guild, 
+                    interaction.user
+                )
+                logger.info(f"Music channel ready: {music_channel.name}")
+            except Exception as e:
+                logger.error(f"Error creating music channel: {e}")
+                raise
             
             # Connect to voice channel
-            if not interaction.guild.voice_client:
-                vc = await music_channel.connect(cls=wavelink.Player)
-            else:
-                vc = interaction.guild.voice_client
+            try:
+                if not interaction.guild.voice_client:
+                    vc = await music_channel.connect(cls=wavelink.Player)
+                    logger.info("Connected to voice channel")
+                else:
+                    vc = interaction.guild.voice_client
+                    logger.info("Using existing voice connection")
+            except Exception as e:
+                logger.error(f"Error connecting to voice: {e}")
+                raise
             
             queue = self.music_cog.get_queue(interaction.guild.id)
             
             # ✅ Store requester info in track extras
             track.extras.requester_name = interaction.user.display_name
             track.extras.requester_id = interaction.user.id
+            logger.info(f"Set requester info: {interaction.user.display_name}")
             
             if not vc.playing:
-                await vc.play(track)
-                queue.current = track
-                # Analytics tracking
-                await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
-                # Save playback history
-                await self.music_cog.bot.database.save_playback_history(
-                    guild_id=interaction.guild.id,
-                    track_title=track.title,
-                    track_author=getattr(track, 'author', 'Unknown'),
-                    track_artwork=getattr(track, 'artwork', None),
-                    track_uri=track.uri,
-                    track_length=track.length,
-                    requester_id=interaction.user.id,
-                    requester_name=interaction.user.display_name
-                )
+                try:
+                    logger.info(f"Starting playback: {track.title}")
+                    await vc.play(track)
+                    queue.current = track
+                    logger.info("Playback started successfully")
+                except Exception as e:
+                    logger.error(f"Error starting playback: {e}")
+                    raise
                 
-                # Create player UI
-                from music_ui import MusicPlayerView
-                view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
-                embed = view.create_embed()
-                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=False)
+                # Analytics tracking
+                try:
+                    await self.music_cog.bot.database.increment_daily_stat(interaction.guild.id, 'music_count')
+                    logger.info("Analytics updated")
+                except Exception as e:
+                    logger.error(f"Error updating analytics: {e}")
+                
+                # Save playback history
+                try:
+                    await self.music_cog.bot.database.save_playback_history(
+                        guild_id=interaction.guild.id,
+                        track_title=track.title,
+                        track_author=getattr(track, 'author', 'Unknown'),
+                        track_artwork=getattr(track, 'artwork', None),
+                        track_uri=track.uri,
+                        track_length=track.length,
+                        requester_id=interaction.user.id,
+                        requester_name=interaction.user.display_name
+                    )
+                    logger.info("Playback history saved")
+                except Exception as e:
+                    logger.error(f"Error saving playback history: {e}")
+                
+                # Create simple embed without MusicPlayerView
+                embed = discord.Embed(
+                    title="🎵 再生開始",
+                    description=f"**{track.title}**\n{getattr(track, 'author', 'Unknown')}",
+                    color=0xaa66ff
+                )
+                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                
+                duration_sec = track.length // 1000
+                duration_min = duration_sec // 60
+                duration_sec = duration_sec % 60
+                embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
+                
+                if hasattr(track, 'artwork') and track.artwork:
+                    embed.set_thumbnail(url=track.artwork)
                 
                 try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                    view.message = await interaction.original_response()
-                    await view.start_update_loop()
-                except Exception as e:
-                    logger.error(f"Error creating player UI: {e}")
-                    # Fallback without UI
-                    embed = discord.Embed(
-                        title="🎵 再生開始",
-                        description=f"**{track.title}**",
-                        color=0xaa66ff
-                    )
                     await interaction.edit_original_response(embed=embed, view=None)
+                    logger.info("Updated embed with playback info")
+                except Exception as e:
+                    logger.error(f"Error updating final embed: {e}")
                 
                 # Broadcast to WebSocket
-                if self.music_cog.bot.api_server:
-                    await self.music_cog.bot.api_server.broadcast_music_event({
-                        'type': 'track_start',
-                        'guild_id': interaction.guild.id,
-                        'track': {
-                            'title': track.title,
-                            'author': getattr(track, 'author', 'Unknown'),
-                            'length': track.length,
-                            'artwork': getattr(track, 'artwork', None),
-                            'uri': track.uri
-                        },
-                        'requester': interaction.user.display_name
-                    })
+                try:
+                    if self.music_cog.bot.api_server:
+                        await self.music_cog.bot.api_server.broadcast_music_event({
+                            'type': 'track_start',
+                            'guild_id': interaction.guild.id,
+                            'track': {
+                                'title': track.title,
+                                'author': getattr(track, 'author', 'Unknown'),
+                                'length': track.length,
+                                'artwork': getattr(track, 'artwork', None),
+                                'uri': track.uri
+                            },
+                            'requester': interaction.user.display_name
+                        })
+                        logger.info("Broadcast music event")
+                except Exception as e:
+                    logger.error(f"Error broadcasting event: {e}")
             else:
                 queue.add(track)
                 embed = discord.Embed(
@@ -1231,6 +1289,7 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 )
                 embed.add_field(name="キュー位置", value=f"{len(queue.queue)}番目", inline=True)
                 await interaction.edit_original_response(embed=embed, view=None)
+                logger.info(f"Added to queue: {track.title}")
             
         except Exception as e:
             logger.error(f"Error playing selected track: {e}")
@@ -1238,13 +1297,16 @@ class SlashCommandTrackSelectionView(discord.ui.View):
             traceback.print_exc()
             embed = discord.Embed(
                 title="❌ エラーが発生しました",
-                description=str(e),
+                description=f"```{str(e)}```",
                 color=0xff4444
             )
             try:
                 await interaction.edit_original_response(embed=embed, view=None)
             except:
-                await interaction.followup.send(embed=embed)
+                try:
+                    await interaction.followup.send(embed=embed)
+                except:
+                    logger.error("Failed to send error message")
         
         self.stop()
     
