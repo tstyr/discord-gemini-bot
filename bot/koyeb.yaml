@@ -1,0 +1,42 @@
+name: discord-bot
+type: web
+definition:
+  name: discord-bot
+  routes:
+    - path: /
+      port: 8000
+  ports:
+    - port: 8000
+      protocol: http
+  env:
+    - key: PYTHON_VERSION
+      value: "3.11"
+    - key: API_HOST
+      value: "0.0.0.0"
+    - key: API_PORT
+      value: "8000"
+    # 以下の環境変数をKoyebダッシュボードで設定してください:
+    # DISCORD_TOKEN - Discordボットトークン
+    # GEMINI_API_KEY - Gemini APIキー（必須！）
+    # DATABASE_URL - PostgreSQL接続URL
+    # LAVALINK_HOST - lavalinkv4.serenetia.com
+    # LAVALINK_PORT - 443
+    # LAVALINK_PASSWORD - https://dsc.gg/ajidevserver
+    # LAVALINK_SECURE - true
+    # SPOTIFY_CLIENT_ID - (オプション)
+    # SPOTIFY_CLIENT_SECRET - (オプション)
+  regions:
+    - fra
+  instance_types:
+    - type: free
+  scaling:
+    min: 1
+    max: 1
+  health_checks:
+    - port: 8000
+      protocol: http
+      path: /api/health
+      interval: 30
+      timeout: 10
+      healthy_threshold: 1
+      unhealthy_threshold: 3
