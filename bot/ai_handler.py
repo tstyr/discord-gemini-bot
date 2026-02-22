@@ -1,4 +1,6 @@
 import google.generativeai as genai
+import logging
+import os
 
 
 class AIHandler:

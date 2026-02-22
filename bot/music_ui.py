@@ -13,8 +13,8 @@ class MusicPlayerView(View):
         self.message = None
         self.update_task = None
         
-        # 歌詞ボタンの初期状態を設定
-        self._update_lyrics_button_state()
+        # Note: ボタンの初期状態は __init__ 後に設定される
+        # _update_lyrics_button_state() は後で呼ぶ
     
     def _update_lyrics_button_state(self):
         """歌詞ボタンの状態を更新"""

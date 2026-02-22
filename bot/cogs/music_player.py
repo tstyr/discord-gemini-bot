@@ -912,26 +912,53 @@ class PlaybackModeView(discord.ui.View):
                 
                 # Create player UI with buttons
                 try:
-                    import sys
-                    import os
-                    # Add parent directory to path if not already there
-                    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    if parent_dir not in sys.path:
-                        sys.path.insert(0, parent_dir)
+                    # Import MusicPlayerView - try multiple import methods
+                    MusicPlayerView = None
+                    try:
+                        from music_ui import MusicPlayerView as MPV
+                        MusicPlayerView = MPV
+                        logger.info("Imported MusicPlayerView from music_ui")
+                    except ImportError as e1:
+                        logger.warning(f"Failed to import from music_ui: {e1}")
+                        try:
+                            import sys
+                            import os
+                            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            if parent_dir not in sys.path:
+                                sys.path.insert(0, parent_dir)
+                            from music_ui import MusicPlayerView as MPV
+                            MusicPlayerView = MPV
+                            logger.info("Imported MusicPlayerView with sys.path modification")
+                        except ImportError as e2:
+                            logger.error(f"Failed to import with sys.path: {e2}")
+                            raise ImportError(f"Cannot import MusicPlayerView: {e1}, {e2}")
                     
-                    from music_ui import MusicPlayerView
+                    if MusicPlayerView is None:
+                        raise ImportError("MusicPlayerView is None after import attempts")
+                    
+                    # Create view instance
+                    logger.info(f"Creating MusicPlayerView for guild {interaction.guild.id}")
                     view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                    logger.info("MusicPlayerView instance created")
+                    
+                    # Create embed
                     embed = view.create_embed()
+                    logger.info("Embed created from view")
                     embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
                     
+                    # Send message with view
+                    logger.info("Sending followup message with view")
                     player_message = await interaction.followup.send(embed=embed, view=view)
+                    logger.info(f"Message sent, ID: {player_message.id}")
+                    
                     view.message = player_message
                     await view.start_update_loop()
-                    logger.info("Created player UI with controls")
+                    logger.info("✅ Created player UI with controls successfully")
+                    
                 except Exception as e:
-                    logger.error(f"Error creating player UI: {e}")
+                    logger.error(f"❌ Error creating player UI: {e}")
                     import traceback
-                    traceback.print_exc()
+                    logger.error(traceback.format_exc())
                     # Fallback: simple embed without controls
                     embed = discord.Embed(
                         title="📻 Discord VCで再生開始",
@@ -1264,26 +1291,53 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 
                 # Create player UI with buttons
                 try:
-                    import sys
-                    import os
-                    # Add parent directory to path if not already there
-                    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    if parent_dir not in sys.path:
-                        sys.path.insert(0, parent_dir)
+                    # Import MusicPlayerView - try multiple import methods
+                    MusicPlayerView = None
+                    try:
+                        from music_ui import MusicPlayerView as MPV
+                        MusicPlayerView = MPV
+                        logger.info("Imported MusicPlayerView from music_ui")
+                    except ImportError as e1:
+                        logger.warning(f"Failed to import from music_ui: {e1}")
+                        try:
+                            import sys
+                            import os
+                            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            if parent_dir not in sys.path:
+                                sys.path.insert(0, parent_dir)
+                            from music_ui import MusicPlayerView as MPV
+                            MusicPlayerView = MPV
+                            logger.info("Imported MusicPlayerView with sys.path modification")
+                        except ImportError as e2:
+                            logger.error(f"Failed to import with sys.path: {e2}")
+                            raise ImportError(f"Cannot import MusicPlayerView: {e1}, {e2}")
                     
-                    from music_ui import MusicPlayerView
+                    if MusicPlayerView is None:
+                        raise ImportError("MusicPlayerView is None after import attempts")
+                    
+                    # Create view instance
+                    logger.info(f"Creating MusicPlayerView for guild {interaction.guild.id}")
                     view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                    logger.info("MusicPlayerView instance created")
+                    
+                    # Create embed
                     embed = view.create_embed()
+                    logger.info("Embed created from view")
                     embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
                     
+                    # Edit original response with view
+                    logger.info("Editing original response with view")
                     await interaction.edit_original_response(embed=embed, view=view)
+                    logger.info("Response edited")
+                    
                     view.message = await interaction.original_response()
                     await view.start_update_loop()
-                    logger.info("Created player UI with controls")
+                    logger.info("✅ Created player UI with controls successfully")
+                    
                 except Exception as e:
-                    logger.error(f"Error creating player UI: {e}")
+                    logger.error(f"❌ Error creating player UI: {e}")
                     import traceback
-                    traceback.print_exc()
+                    logger.error(traceback.format_exc())
                     # Fallback: simple embed without controls
                     embed = discord.Embed(
                         title="🎵 再生開始",
