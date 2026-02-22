@@ -910,24 +910,39 @@ class PlaybackModeView(discord.ui.View):
                 except Exception as e:
                     logger.error(f"Error saving playback history: {e}")
                 
-                # Create simple embed
-                embed = discord.Embed(
-                    title="📻 Discord VCで再生開始",
-                    description=f"**{self.track.title}**\n{getattr(self.track, 'author', 'Unknown')}",
-                    color=0xaa66ff
-                )
-                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
-                
-                duration_sec = self.track.length // 1000
-                duration_min = duration_sec // 60
-                duration_sec = duration_sec % 60
-                embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
-                
-                if hasattr(self.track, 'artwork') and self.track.artwork:
-                    embed.set_thumbnail(url=self.track.artwork)
-                
-                await interaction.followup.send(embed=embed)
-                logger.info("Sent playback confirmation")
+                # Create player UI with buttons
+                try:
+                    from music_ui import MusicPlayerView
+                    view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                    embed = view.create_embed()
+                    embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                    
+                    player_message = await interaction.followup.send(embed=embed, view=view)
+                    view.message = player_message
+                    await view.start_update_loop()
+                    logger.info("Created player UI with controls")
+                except Exception as e:
+                    logger.error(f"Error creating player UI: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback: simple embed without controls
+                    embed = discord.Embed(
+                        title="📻 Discord VCで再生開始",
+                        description=f"**{self.track.title}**\n{getattr(self.track, 'author', 'Unknown')}",
+                        color=0xaa66ff
+                    )
+                    embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                    
+                    duration_sec = self.track.length // 1000
+                    duration_min = duration_sec // 60
+                    duration_sec = duration_sec % 60
+                    embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
+                    
+                    if hasattr(self.track, 'artwork') and self.track.artwork:
+                        embed.set_thumbnail(url=self.track.artwork)
+                    
+                    await interaction.followup.send(embed=embed)
+                    logger.info("Used fallback embed without controls")
                 
                 # Broadcast to WebSocket
                 try:
@@ -1240,27 +1255,39 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 except Exception as e:
                     logger.error(f"Error saving playback history: {e}")
                 
-                # Create simple embed without MusicPlayerView
-                embed = discord.Embed(
-                    title="🎵 再生開始",
-                    description=f"**{track.title}**\n{getattr(track, 'author', 'Unknown')}",
-                    color=0xaa66ff
-                )
-                embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
-                
-                duration_sec = track.length // 1000
-                duration_min = duration_sec // 60
-                duration_sec = duration_sec % 60
-                embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
-                
-                if hasattr(track, 'artwork') and track.artwork:
-                    embed.set_thumbnail(url=track.artwork)
-                
+                # Create player UI with buttons
                 try:
-                    await interaction.edit_original_response(embed=embed, view=None)
-                    logger.info("Updated embed with playback info")
+                    from music_ui import MusicPlayerView
+                    view = MusicPlayerView(self.music_cog.bot, interaction.guild.id)
+                    embed = view.create_embed()
+                    embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                    
+                    await interaction.edit_original_response(embed=embed, view=view)
+                    view.message = await interaction.original_response()
+                    await view.start_update_loop()
+                    logger.info("Created player UI with controls")
                 except Exception as e:
-                    logger.error(f"Error updating final embed: {e}")
+                    logger.error(f"Error creating player UI: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback: simple embed without controls
+                    embed = discord.Embed(
+                        title="🎵 再生開始",
+                        description=f"**{track.title}**\n{getattr(track, 'author', 'Unknown')}",
+                        color=0xaa66ff
+                    )
+                    embed.add_field(name="リクエスト", value=interaction.user.display_name, inline=True)
+                    
+                    duration_sec = track.length // 1000
+                    duration_min = duration_sec // 60
+                    duration_sec = duration_sec % 60
+                    embed.add_field(name="長さ", value=f"{duration_min}:{duration_sec:02d}", inline=True)
+                    
+                    if hasattr(track, 'artwork') and track.artwork:
+                        embed.set_thumbnail(url=track.artwork)
+                    
+                    await interaction.edit_original_response(embed=embed, view=None)
+                    logger.info("Used fallback embed without controls")
                 
                 # Broadcast to WebSocket
                 try:
