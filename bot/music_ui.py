@@ -173,31 +173,58 @@ class MusicPlayerView(View):
     @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary)
     async def restart(self, interaction: discord.Interaction, button: Button):
         """Restart current track"""
-        vc = self.get_vc()
-        if vc:
-            await vc.seek(0)
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
-            await interaction.response.defer()
+        try:
+            vc = self.get_vc()
+            if vc and vc.playing:
+                await vc.seek(0)
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in restart button: {e}")
+            try:
+                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+            except:
+                await interaction.response.defer()
     
     @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary)
     async def pause_resume(self, interaction: discord.Interaction, button: Button):
         """Pause/Resume"""
-        vc = self.get_vc()
-        if vc:
-            if vc.paused:
-                await vc.pause(False)
-                button.emoji = "⏸️"
+        try:
+            vc = self.get_vc()
+            if vc and (vc.playing or vc.paused):
+                if vc.paused:
+                    await vc.pause(False)
+                    button.emoji = "⏸️"
+                else:
+                    await vc.pause(True)
+                    button.emoji = "▶️"
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
             else:
-                await vc.pause(True)
-                button.emoji = "▶️"
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
-            await interaction.response.defer()
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in pause_resume button: {e}")
+            try:
+                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+            except:
+                await interaction.response.defer()
     
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: Button):
         """Skip track"""
+        try:
+            vc = self.get_vc()
+            if vc and vc.playing:
+                await vc.stop()
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in skip button: {e}")
+            try:
+                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+            except:
+                await interaction.response.defer()
         vc = self.get_vc()
         if vc:
             await vc.stop()

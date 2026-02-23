@@ -27,11 +27,16 @@ class MusicQueue:
         self.queue.append(track)
     
     def get_next(self) -> Optional[wavelink.Playable]:
+        """Get next track based on loop mode"""
         if self.loop_mode == "track" and self.current:
+            # Track loop: return current track again
+            logger.info(f"Loop mode: track - repeating {self.current.title}")
             return self.current
         
         if not self.queue:
             if self.loop_mode == "queue" and self.history:
+                # Queue loop: restore history to queue
+                logger.info(f"Loop mode: queue - restoring {len(self.history)} tracks from history")
                 self.queue.extend(self.history)
                 self.history.clear()
         
@@ -40,8 +45,12 @@ class MusicQueue:
             if self.current:
                 self.history.append(self.current)
             self.current = track
+            logger.info(f"Next track: {track.title}")
             return track
         
+        # No more tracks
+        logger.info("Queue empty, no next track")
+        self.current = None
         return None
     
     def clear(self):
@@ -776,7 +785,18 @@ class MusicPlayer(commands.Cog):
             next_track = queue.get_next()
             
             if next_track:
+                logger.info(f"Playing next track: {next_track.title} (loop mode: {queue.loop_mode})")
+                
+                # Ensure track has extras (for requester info)
+                if not hasattr(next_track.extras, 'requester_name'):
+                    # If extras are missing, try to preserve from current track
+                    if queue.current and hasattr(queue.current.extras, 'requester_name'):
+                        next_track.extras.requester_name = queue.current.extras.requester_name
+                        next_track.extras.requester_id = queue.current.extras.requester_id
+                        logger.info(f"Preserved requester info: {next_track.extras.requester_name}")
+                
                 await player.play(next_track)
+                logger.info(f"✅ Started playing: {next_track.title}")
                 
                 # Broadcast next track event
                 if self.bot.api_server:
