@@ -610,9 +610,93 @@ class MusicPlayer(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
         
+        # Clear active session
+        try:
+            await self.bot.supabase_client.update_active_session(interaction.guild.id, None)
+        except Exception as e:
+            logger.error(f"Error clearing active session: {e}")
+        
         # Broadcast stop event
         if self.bot.api_server:
             await self.bot.api_server.broadcast_music_event({
+                'type': 'music_stopped',
+                'guild_id': interaction.guild.id
+            })
+    
+    @app_commands.command(name="disconnect", description="ボットをボイスチャンネルから切断します（キューは保持）")
+    async def disconnect(self, interaction: discord.Interaction):
+        """Disconnect bot from voice channel without clearing queue"""
+        vc = interaction.guild.voice_client
+        
+        if not vc:
+            await interaction.response.send_message("❌ ボイスチャンネルに接続していません。", ephemeral=True)
+            return
+        
+        channel_name = vc.channel.name if vc.channel else "不明"
+        await vc.disconnect()
+        
+        embed = discord.Embed(
+            title="👋 切断しました",
+            description=f"**{channel_name}** から切断しました\n\nキューは保持されています。`/play` で再開できます。",
+            color=0xffaa00
+        )
+        await interaction.response.send_message(embed=embed)
+        
+        # Clear active session
+        try:
+            await self.bot.supabase_client.update_active_session(interaction.guild.id, None)
+        except Exception as e:
+            logger.error(f"Error clearing active session: {e}")
+    
+    @app_commands.command(name="move", description="ボットを別のボイスチャンネルに移動します")
+    @app_commands.describe(channel="移動先のボイスチャンネル")
+    async def move(self, interaction: discord.Interaction, channel: discord.VoiceChannel):
+        """Move bot to another voice channel"""
+        vc = interaction.guild.voice_client
+        
+        if not vc:
+            await interaction.response.send_message("❌ ボイスチャンネルに接続していません。", ephemeral=True)
+            return
+        
+        # Check if bot has permission to connect to the target channel
+        permissions = channel.permissions_for(interaction.guild.me)
+        if not permissions.connect:
+            await interaction.response.send_message(f"❌ **{channel.name}** に接続する権限がありません。", ephemeral=True)
+            return
+        
+        if not permissions.speak:
+            await interaction.response.send_message(f"❌ **{channel.name}** で発言する権限がありません。", ephemeral=True)
+            return
+        
+        old_channel = vc.channel.name if vc.channel else "不明"
+        
+        try:
+            # Move to new channel
+            await vc.move_to(channel)
+            
+            embed = discord.Embed(
+                title="🔄 チャンネル移動",
+                description=f"**{old_channel}** → **{channel.name}**",
+                color=0x00ff88
+            )
+            
+            # Show current playing track if any
+            queue = self.get_queue(interaction.guild.id)
+            if queue.current and vc.playing:
+                embed.add_field(
+                    name="再生中",
+                    value=f"🎵 {queue.current.title}",
+                    inline=False
+                )
+            
+            await interaction.response.send_message(embed=embed)
+            logger.info(f"Moved bot from {old_channel} to {channel.name} in {interaction.guild.name}")
+            
+        except discord.Forbidden:
+            await interaction.response.send_message(f"❌ **{channel.name}** に移動する権限がありません。", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error moving to channel: {e}")
+            await interaction.response.send_message(f"❌ チャンネル移動中にエラーが発生しました: {str(e)}", ephemeral=True)
                 'type': 'music_stopped',
                 'guild_id': interaction.guild.id
             })
