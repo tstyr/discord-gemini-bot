@@ -29,8 +29,9 @@ class MusicQueue:
     def get_next(self) -> Optional[wavelink.Playable]:
         """Get next track based on loop mode"""
         if self.loop_mode == "track" and self.current:
-            # Track loop: return current track again
+            # Track loop: return current track again (don't change self.current)
             logger.info(f"Loop mode: track - repeating {self.current.title}")
+            # Keep self.current as is for next iteration
             return self.current
         
         if not self.queue:
@@ -42,7 +43,8 @@ class MusicQueue:
         
         if self.queue:
             track = self.queue.pop(0)
-            if self.current:
+            # Add current to history before updating
+            if self.current and self.loop_mode != "track":
                 self.history.append(self.current)
             self.current = track
             logger.info(f"Next track: {track.title}")
@@ -50,7 +52,9 @@ class MusicQueue:
         
         # No more tracks
         logger.info("Queue empty, no next track")
-        self.current = None
+        # Don't clear self.current if in track loop mode
+        if self.loop_mode != "track":
+            self.current = None
         return None
     
     def clear(self):
@@ -356,6 +360,9 @@ class MusicPlayer(commands.Cog):
                         logger.info(f"Found playlist: {playlist_name} with {len(tracks)} tracks")
                     elif isinstance(result, list):
                         tracks = result
+                        # URLでも複数結果がある場合は選択UIを表示
+                        if len(tracks) > 1:
+                            show_selection = True
                         logger.info(f"Found {len(tracks)} tracks from URL")
                     elif result:
                         tracks = [result]
@@ -371,7 +378,7 @@ class MusicPlayer(commands.Cog):
                     await interaction.followup.send(f"❌ URLの読み込みに失敗しました: {str(e)}", ephemeral=True)
                     return
             else:
-                # Search by source - get multiple results for selection
+                # Search by source - ALWAYS get multiple results for selection
                 show_selection = True
                 if source == "spotify" or (source == "auto" and any(word in query.lower() for word in ['spotify', 'スポティファイ'])):
                     tracks, _, _ = await self.search_spotify(query, search_mode=True)
@@ -380,7 +387,7 @@ class MusicPlayer(commands.Cog):
                     tracks = await wavelink.Playable.search(f"scsearch:{query}")
                     tracks = tracks[:15] if isinstance(tracks, list) else ([tracks] if tracks else [])
                 else:
-                    # Default: YouTube search - get 15 results
+                    # Default: YouTube search - ALWAYS get 15 results
                     search_query = query
                     if any(word in query.lower() for word in ['リラックス', '作業', '盛り上がる', 'bgm', 'chill', '高音質']):
                         search_query = await self.ai_music_recommendation(query)
@@ -406,8 +413,8 @@ class MusicPlayer(commands.Cog):
                 await interaction.followup.send(f"❌ 曲が見つかりませんでした: **{query}**", ephemeral=True)
                 return
             
-            # Show selection UI if multiple tracks from search
-            if show_selection and len(tracks) > 1:
+            # ALWAYS show selection UI for search results (not for playlists)
+            if show_selection and len(tracks) > 1 and not is_playlist:
                 embed = discord.Embed(
                     title="🎵 曲を選択してください",
                     description=f"検索: **{query}**\n{len(tracks)}件の結果",
