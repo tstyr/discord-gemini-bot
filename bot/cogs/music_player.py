@@ -953,7 +953,20 @@ class MusicPlayer(commands.Cog):
     # to avoid duplicate processing
 
 async def setup(bot):
-    await bot.add_cog(MusicPlayer(bot))
+    cog = MusicPlayer(bot)
+    await bot.add_cog(cog)
+    logger.info(f"MusicPlayer cog added with {len(cog.__cog_app_commands__)} commands")
+    
+    # List all commands in this cog
+    for cmd in cog.__cog_app_commands__:
+        logger.info(f"  - {cmd.name}: {cmd.description}")
+    
+    # Verify play command exists
+    play_cmd = discord.utils.get(cog.__cog_app_commands__, name='play')
+    if play_cmd:
+        logger.info("✅ play command found in MusicPlayer cog")
+    else:
+        logger.error("❌ play command NOT found in MusicPlayer cog")
 
 class PlaybackModeView(discord.ui.View):
     def __init__(self, music_cog, interaction, track):

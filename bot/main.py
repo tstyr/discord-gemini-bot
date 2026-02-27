@@ -112,22 +112,36 @@ class DiscordBot(commands.Bot):
         await self.load_extension('cogs.channel_manager')
         await self.load_extension('cogs.admin_commands')  # ✅ 管理者コマンドを追加
         
+        # Log total commands before loading music player
+        commands_before = len(self.tree.get_commands())
+        logger.info(f"📊 Total commands before music player: {commands_before}")
+        
         # Try to load music player (optional, requires Lavalink)
         try:
             await self.load_extension('cogs.music_player')
             logger.info("✅ Music player cog loaded")
             
-            # Check if play command is registered
-            music_cog = self.get_cog('MusicPlayer')
-            if music_cog:
-                commands_list = [cmd.name for cmd in music_cog.get_app_commands()]
-                logger.info(f"📋 Music player commands: {', '.join(commands_list)}")
+            # Check if play command is registered in the tree
+            all_commands = self.tree.get_commands()
+            play_cmd = discord.utils.get(all_commands, name='play')
+            if play_cmd:
+                logger.info("✅ /play command found in command tree")
+            else:
+                logger.error("❌ /play command NOT found in command tree")
+            
+            # List all music commands
+            music_commands = [cmd.name for cmd in all_commands if hasattr(cmd, 'module') and 'music_player' in str(cmd.module)]
+            logger.info(f"📋 Music commands in tree: {', '.join(music_commands) if music_commands else 'None'}")
             
             await self.load_extension('cogs.playlist_manager')
             logger.info("✅ Playlist manager cog loaded")
             
             await self.load_extension('cogs.lyrics_streamer')
             logger.info("✅ Lyrics streamer cog loaded")
+            
+            # Log total commands after loading music player
+            commands_after = len(self.tree.get_commands())
+            logger.info(f"📊 Total commands after music player: {commands_after}")
             
             logger.info("Music player, playlist manager, and lyrics streamer loaded successfully")
         except Exception as e:
