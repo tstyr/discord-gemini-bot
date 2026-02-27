@@ -860,20 +860,17 @@ class MusicPlayer(commands.Cog):
         try:
             player = payload.player
             
-            # Check reason and decide whether to continue
-            should_continue = True
+            # Check reason and log it
             if hasattr(payload, 'reason'):
                 reason = str(payload.reason).upper()
                 logger.info(f"Track end reason: {reason}")
                 
                 # Only skip processing for LOAD_FAILED
-                # REPLACED and CLEANUP can happen during normal operation, so continue
+                # For all other reasons (FINISHED, REPLACED, CLEANUP, STOPPED), continue to next track
                 if reason == 'LOAD_FAILED':
-                    logger.warning(f"Track failed to load, not processing")
-                    should_continue = False
-            
-            if not should_continue:
-                return
+                    logger.warning(f"Track failed to load, skipping to next")
+                    # Don't return - still try to play next track
+
             
             # ✅ 歌詞配信を停止
             if player and player.guild:
