@@ -742,6 +742,30 @@ class MusicPlayer(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
+    @app_commands.command(name="volume", description="音量を調整します")
+    @app_commands.describe(level="音量レベル (0-100)")
+    async def volume(self, interaction: discord.Interaction, level: int):
+        """Set volume level"""
+        vc = interaction.guild.voice_client
+        
+        if not vc:
+            await interaction.response.send_message("❌ ボイスチャンネルに接続していません。", ephemeral=True)
+            return
+        
+        if level < 0 or level > 100:
+            await interaction.response.send_message("❌ 音量は0-100の範囲で指定してください。", ephemeral=True)
+            return
+        
+        # Wavelinkは0-1000の範囲なので10倍する
+        await vc.set_volume(level * 10)
+        
+        embed = discord.Embed(
+            title="🔊 音量を変更しました",
+            description=f"音量: **{level}%**",
+            color=0x00ff88
+        )
+        await interaction.response.send_message(embed=embed)
+    
     @app_commands.command(name="recommend", description="AIが会話の流れから音楽を推薦します")
     async def recommend(self, interaction: discord.Interaction):
         """AI music recommendation based on conversation context"""

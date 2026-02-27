@@ -86,11 +86,50 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"❌ Health monitor error: {e}")
     
+    @tasks.loop(hours=1)
+    async def log_cleanup_loop(self):
+        """1時間ごとに古いログを削除して10万件以内に保つ"""
+        try:
+            await self._cleanup_old_logs()
+        except Exception as e:
+            logger.error(f"❌ Log cleanup error: {e}")
+    
+    async def _cleanup_old_logs(self):
+        """古いログを削除して10万件以内に保つ"""
+        if not self.client or not self.is_running:
+            return
+        
+        try:
+            # bot_logsテーブルの件数を確認
+            result = self.client.table('bot_logs').select('id', count='exact').execute()
+            total_count = result.count if hasattr(result, 'count') else 0
+            
+            if total_count > 100000:
+                # 削除する件数を計算
+                delete_count = total_count - 100000
+                
+                # 古いログを削除（created_atの古い順）
+                self.client.rpc('delete_old_logs', {'delete_count': delete_count}).execute()
+                
+                logger.info(f"🗑️ Deleted {delete_count} old logs. Total: {total_count} -> 100000")
+            else:
+                logger.debug(f"📊 Log count: {total_count}/100000 (no cleanup needed)")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup logs: {e}")
+            import traceback
+            traceback.print_exc()
+    
     @health_monitor_loop.before_loop
     async def before_health_monitor(self):
         """ヘルスモニター開始前の待機"""
         await self.bot.wait_until_ready()
         logger.info("🔄 Health monitor started (10s interval)")
+        
+        # ログクリーンアップも開始
+        if not self.log_cleanup_loop.is_running():
+            self.log_cleanup_loop.start()
+            logger.info("🗑️ Log cleanup started (1h interval)")
     
     async def _send_system_stats(self):
         """システム統計をSupabaseに送信"""
