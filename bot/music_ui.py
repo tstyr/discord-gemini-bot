@@ -130,8 +130,9 @@ class MusicPlayerView(View):
                     vc = self.get_vc()
                     queue = self.get_queue()
                     
-                    if not vc or not vc.playing:
-                        # Stop updating if not playing
+                    # Continue loop if playing OR paused
+                    if not vc or not (vc.playing or vc.paused):
+                        logger.info("Stopping update loop: not playing or paused")
                         break
                     
                     try:
@@ -159,11 +160,16 @@ class MusicPlayerView(View):
                             logger.debug(f"📊 Updated position: {vc.position}ms for guild {self.guild_id}")
                             
                     except discord.NotFound:
+                        logger.info("Message not found, stopping update loop")
                         break
+                    except discord.HTTPException as e:
+                        logger.warning(f"HTTP error updating music embed: {e}")
+                        # Don't break on HTTP errors, continue trying
                     except Exception as e:
                         logger.error(f"Error updating music embed: {e}")
                         break
         except asyncio.CancelledError:
+            logger.info("Update loop cancelled")
             pass
     
     def stop_update(self):
@@ -175,17 +181,23 @@ class MusicPlayerView(View):
         """Restart current track"""
         try:
             vc = self.get_vc()
-            if vc and vc.playing:
+            if vc and (vc.playing or vc.paused):
                 await vc.seek(0)
-                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+                try:
+                    await interaction.response.edit_message(embed=self.create_embed(), view=self)
+                except discord.InteractionResponded:
+                    await interaction.followup.send("⏮️ 最初から再生します", ephemeral=True)
             else:
                 await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in restart button: {e}")
             try:
-                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
             except:
-                await interaction.response.defer()
+                pass
     
     @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary)
     async def pause_resume(self, interaction: discord.Interaction, button: Button):
@@ -199,59 +211,85 @@ class MusicPlayerView(View):
                 else:
                     await vc.pause(True)
                     button.emoji = "▶️"
-                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+                try:
+                    await interaction.response.edit_message(embed=self.create_embed(), view=self)
+                except discord.InteractionResponded:
+                    status = "再開" if not vc.paused else "一時停止"
+                    await interaction.followup.send(f"⏸️ {status}しました", ephemeral=True)
             else:
                 await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in pause_resume button: {e}")
             try:
-                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
             except:
-                await interaction.response.defer()
+                pass
     
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: Button):
-        """Skip track"""
+        """Skip track - force skip even in loop mode"""
         try:
             vc = self.get_vc()
-            if vc and vc.playing:
-                # Acknowledge the interaction first
-                await interaction.response.defer()
+            queue = self.get_queue()
+            
+            if not vc or not (vc.playing or vc.paused):
+                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+                return
+            
+            # Acknowledge the interaction first
+            await interaction.response.defer()
+            
+            # Get next track with force_skip=True to bypass loop mode
+            next_track = queue.get_next(force_skip=True)
+            
+            if next_track:
+                # Play next track
+                await vc.play(next_track)
+                logger.info(f"Skipped to: {next_track.title}")
                 
-                # Stop current track (this will trigger on_wavelink_track_end)
-                await vc.stop()
-                
-                # Wait a bit for the next track to start
-                await asyncio.sleep(0.5)
+                # Wait a bit for the track to start
+                await asyncio.sleep(0.3)
                 
                 # Update the message
                 try:
                     await interaction.edit_original_response(embed=self.create_embed(), view=self)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Could not update message after skip: {e}")
             else:
-                await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
+                # No more tracks, stop playback
+                await vc.stop()
+                await interaction.edit_original_response(
+                    embed=discord.Embed(
+                        title="⏹️ キューが空です",
+                        description="再生を停止しました",
+                        color=0xff4444
+                    ),
+                    view=None
+                )
+                
         except Exception as e:
             logger.error(f"Error in skip button: {e}")
             import traceback
             logger.error(traceback.format_exc())
             try:
-                await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
+                await interaction.followup.send("❌ スキップ中にエラーが発生しました", ephemeral=True)
             except:
                 pass
-        vc = self.get_vc()
-        if vc:
-            await vc.stop()
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-        else:
-            await interaction.response.defer()
     
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button: Button):
         """Stop and disconnect"""
-        vc = self.get_vc()
-        queue = self.get_queue()
-        if vc:
+        try:
+            vc = self.get_vc()
+            queue = self.get_queue()
+            
+            if not vc:
+                await interaction.response.send_message("❌ ボイスチャンネルに接続していません", ephemeral=True)
+                return
+            
             if queue:
                 queue.clear()
             await vc.disconnect()
@@ -262,9 +300,19 @@ class MusicPlayerView(View):
                 description="ボイスチャンネルから切断しました",
                 color=0xff4444
             )
-            await interaction.response.edit_message(embed=embed, view=None)
-        else:
-            await interaction.response.defer()
+            try:
+                await interaction.response.edit_message(embed=embed, view=None)
+            except discord.InteractionResponded:
+                await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error in stop button: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
+            except:
+                pass
     
     @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, row=1)
     async def loop(self, interaction: discord.Interaction, button: Button):

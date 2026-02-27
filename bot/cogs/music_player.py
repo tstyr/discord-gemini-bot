@@ -26,12 +26,15 @@ class MusicQueue:
     def add(self, track: wavelink.Playable):
         self.queue.append(track)
     
-    def get_next(self) -> Optional[wavelink.Playable]:
-        """Get next track based on loop mode"""
-        if self.loop_mode == "track" and self.current:
-            # Track loop: return current track again (don't change self.current)
+    def get_next(self, force_skip: bool = False) -> Optional[wavelink.Playable]:
+        """Get next track based on loop mode
+        
+        Args:
+            force_skip: If True, skip to next track even in loop mode
+        """
+        if self.loop_mode == "track" and self.current and not force_skip:
+            # Track loop: return current track again (unless force_skip)
             logger.info(f"Loop mode: track - repeating {self.current.title}")
-            # Keep self.current as is for next iteration
             return self.current
         
         if not self.queue:
@@ -52,8 +55,8 @@ class MusicQueue:
         
         # No more tracks
         logger.info("Queue empty, no next track")
-        # Don't clear self.current if in track loop mode
-        if self.loop_mode != "track":
+        # Don't clear self.current if in track loop mode (unless force_skip)
+        if self.loop_mode != "track" or force_skip:
             self.current = None
         return None
     
@@ -857,14 +860,20 @@ class MusicPlayer(commands.Cog):
         try:
             player = payload.player
             
-            # Ignore if track failed to load or was replaced
-            # Only handle FINISHED (normal end) and STOPPED (skip)
+            # Check reason and decide whether to continue
+            should_continue = True
             if hasattr(payload, 'reason'):
                 reason = str(payload.reason).upper()
                 logger.info(f"Track end reason: {reason}")
-                if reason in ['LOAD_FAILED', 'CLEANUP', 'REPLACED']:
-                    logger.warning(f"Track ended with reason: {reason}, not processing")
-                    return
+                
+                # Only skip processing for LOAD_FAILED
+                # REPLACED and CLEANUP can happen during normal operation, so continue
+                if reason == 'LOAD_FAILED':
+                    logger.warning(f"Track failed to load, not processing")
+                    should_continue = False
+            
+            if not should_continue:
+                return
             
             # ✅ 歌詞配信を停止
             if player and player.guild:
