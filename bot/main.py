@@ -115,11 +115,25 @@ class DiscordBot(commands.Bot):
         # Try to load music player (optional, requires Lavalink)
         try:
             await self.load_extension('cogs.music_player')
-            await self.load_extension('cogs.playlist_manager')  # ✅ プレイリスト管理を追加
-            await self.load_extension('cogs.lyrics_streamer')  # ✅ 歌詞配信機能を追加
+            logger.info("✅ Music player cog loaded")
+            
+            # Check if play command is registered
+            music_cog = self.get_cog('MusicPlayer')
+            if music_cog:
+                commands_list = [cmd.name for cmd in music_cog.get_app_commands()]
+                logger.info(f"📋 Music player commands: {', '.join(commands_list)}")
+            
+            await self.load_extension('cogs.playlist_manager')
+            logger.info("✅ Playlist manager cog loaded")
+            
+            await self.load_extension('cogs.lyrics_streamer')
+            logger.info("✅ Lyrics streamer cog loaded")
+            
             logger.info("Music player, playlist manager, and lyrics streamer loaded successfully")
         except Exception as e:
             logger.warning(f"Music player not loaded (Lavalink may not be running): {e}")
+            import traceback
+            logger.warning(traceback.format_exc())
         
         # Start API server
         self.api_server = APIServer(self)
@@ -137,8 +151,23 @@ class DiscordBot(commands.Bot):
         try:
             synced = await self.tree.sync()
             logger.info(f'✅ Synced {len(synced)} global commands')
+            
+            # Log all synced commands for debugging
+            logger.info("📋 Synced commands:")
+            for cmd in synced:
+                logger.info(f"   - /{cmd.name}: {cmd.description}")
+            
+            # Check if play command is synced
+            play_cmd = discord.utils.get(synced, name='play')
+            if play_cmd:
+                logger.info("✅ /play command is synced")
+            else:
+                logger.error("❌ /play command is NOT synced!")
+                
         except Exception as e:
             logger.error(f'❌ Failed to sync global commands: {e}')
+            import traceback
+            logger.error(traceback.format_exc())
         
         # ✅ Start status rotation
         if not hasattr(self, 'status_task') or self.status_task is None or self.status_task.done():
