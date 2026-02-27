@@ -71,6 +71,9 @@ class APIServer:
         self.app = FastAPI(title="Discord Bot API", version="1.0.0")
         self.connection_manager = ConnectionManager()
         
+        # Store reference to bot's event loop for thread-safe task execution
+        self.bot_loop = asyncio.get_event_loop()
+        
         # Socket.IO setup for real-time logs
         self.sio = socketio.AsyncServer(
             async_mode='asgi',
@@ -100,38 +103,14 @@ class APIServer:
         self.setup_routes()
         self.setup_middleware()
     
-    def setup_log_handler(self):
-        """Setup logging handler to broadcast logs via Socket.IO"""
-        from log_handler import SocketIOLogHandler
-        
-        # Create custom handler
-        self.log_handler = SocketIOLogHandler(self)
-        self.log_handler.setLevel(logging.INFO)
-        
-        # Format
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        self.log_handler.setFormatter(formatter)
-        
-        # Add to root logger
-        root_logger = logging.getLogger()
-        root_logger.addHandler(self.log_handler)
-        
-        logger.info("✅ Log handler setup complete")
-    
-    async def broadcast_log(self, log_data: dict):
-        """Broadcast log to all connected Socket.IO clients"""
-        try:
-            await self.sio.emit('log_event', log_data)
-        except Exception as e:
-            print(f"Error broadcasting log: {e}")
-        self.setup_middleware()
     
     def setup_log_handler(self):
-        """Setup logging handler to emit logs via Socket.IO"""
+        """Setup logging handler to emit logs via Socket.IO (thread-safe)"""
         class SocketIOHandler(logging.Handler):
-            def __init__(self, sio):
+            def __init__(self, sio, bot_loop):
                 super().__init__()
                 self.sio = sio
+                self.bot_loop = bot_loop
                 self.setFormatter(logging.Formatter('%(levelname)s - %(name)s - %(message)s'))
             
             def emit(self, record):
@@ -142,15 +121,19 @@ class APIServer:
                         'timestamp': datetime.fromtimestamp(record.created).isoformat(),
                         'logger': record.name
                     }
-                    # Emit to all connected clients
-                    asyncio.create_task(self.sio.emit('log_event', log_entry))
+                    # Use run_coroutine_threadsafe for thread-safe task execution
+                    asyncio.run_coroutine_threadsafe(
+                        self.sio.emit('log_event', log_entry),
+                        self.bot_loop
+                    )
                 except Exception:
                     self.handleError(record)
         
         # Add handler to root logger
-        socket_handler = SocketIOHandler(self.sio)
+        socket_handler = SocketIOHandler(self.sio, self.bot_loop)
         socket_handler.setLevel(logging.INFO)
         logging.getLogger().addHandler(socket_handler)
+        logger.info("✅ Thread-safe log handler setup complete")
     
     def setup_middleware(self):
         """Setup CORS middleware"""
