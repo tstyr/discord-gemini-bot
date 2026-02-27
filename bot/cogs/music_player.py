@@ -75,26 +75,33 @@ class MusicPlayer(commands.Cog):
         """Initialize Wavelink when cog loads"""
         try:
             import os
-            
+
             # Get Lavalink settings from environment variables
             lavalink_host = os.getenv('LAVALINK_HOST', 'lavalinkv4.serenetia.com')
             lavalink_port = os.getenv('LAVALINK_PORT', '443')
             lavalink_password = os.getenv('LAVALINK_PASSWORD', 'https://dsc.gg/ajidevserver')
             lavalink_secure = os.getenv('LAVALINK_SECURE', 'true').lower() == 'true'
-            
+
             # Build URI
             protocol = 'https' if lavalink_secure else 'http'
             uri = f"{protocol}://{lavalink_host}:{lavalink_port}"
-            
+
             logger.info(f"Connecting to Lavalink: {uri}")
-            
+
             # Connect to Lavalink server
             nodes = [wavelink.Node(uri=uri, password=lavalink_password)]
             await wavelink.Pool.connect(nodes=nodes, client=self.bot)
             logger.info("✅ Connected to Lavalink server successfully")
+
+            # Register node ready event
+            @self.bot.event
+            async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+                logger.info(f"🎵 Lavalink node ready: {payload.node.identifier} (session: {payload.session_id})")
+
         except Exception as e:
             logger.error(f"❌ Failed to connect to Lavalink: {e}")
             logger.warning("音楽機能は利用できません。環境変数を確認してください。")
+
     
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
@@ -652,38 +659,36 @@ class MusicPlayer(commands.Cog):
         except Exception as e:
             logger.error(f"Error clearing active session: {e}")
     
-    @app_commands.command(name="move", description="ボットを別のボイスチャンネルに移動します")
-    @app_commands.describe(channel="移動先のボイスチャンネル")
     async def move(self, interaction: discord.Interaction, channel: discord.VoiceChannel):
         """Move bot to another voice channel"""
         vc = interaction.guild.voice_client
-        
+
         if not vc:
             await interaction.response.send_message("❌ ボイスチャンネルに接続していません。", ephemeral=True)
             return
-        
+
         # Check if bot has permission to connect to the target channel
         permissions = channel.permissions_for(interaction.guild.me)
         if not permissions.connect:
             await interaction.response.send_message(f"❌ **{channel.name}** に接続する権限がありません。", ephemeral=True)
             return
-        
+
         if not permissions.speak:
             await interaction.response.send_message(f"❌ **{channel.name}** で発言する権限がありません。", ephemeral=True)
             return
-        
+
         old_channel = vc.channel.name if vc.channel else "不明"
-        
+
         try:
             # Move to new channel
             await vc.move_to(channel)
-            
+
             embed = discord.Embed(
                 title="🔄 チャンネル移動",
                 description=f"**{old_channel}** → **{channel.name}**",
                 color=0x00ff88
             )
-            
+
             # Show current playing track if any
             queue = self.get_queue(interaction.guild.id)
             if queue.current and vc.playing:
@@ -692,15 +697,20 @@ class MusicPlayer(commands.Cog):
                     value=f"🎵 {queue.current.title}",
                     inline=False
                 )
-            
+
             await interaction.response.send_message(embed=embed)
             logger.info(f"Moved bot from {old_channel} to {channel.name} in {interaction.guild.name}")
-            
+
         except discord.Forbidden:
             await interaction.response.send_message(f"❌ **{channel.name}** に移動する権限がありません。", ephemeral=True)
         except Exception as e:
             logger.error(f"Error moving to channel: {e}")
-            await interaction.response.send_message(f"❌ チャンネル移動中にエラーが発生しました: {str(e)}", ephemeral=True)
+            # Check if interaction was already responded to
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ チャンネル移動中にエラーが発生しました: {str(e)}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ チャンネル移動中にエラーが発生しました: {str(e)}", ephemeral=True)
+
     
     @app_commands.command(name="queue", description="現在のキューを表示します")
     async def queue_command(self, interaction: discord.Interaction):
@@ -1020,13 +1030,33 @@ class PlaybackModeView(discord.ui.View):
             music_channel = await self.music_cog.create_music_channel(interaction.guild, interaction.user)
             logger.info(f"Music channel ready: {music_channel.name}")
             
-            # Connect to voice channel
+            # Connect to voice channel with retry logic
             if not interaction.guild.voice_client:
-                vc = await music_channel.connect(cls=wavelink.Player)
-                logger.info("Connected to voice channel")
+                try:
+                    vc = await asyncio.wait_for(
+                        music_channel.connect(cls=wavelink.Player, timeout=15.0),
+                        timeout=20.0
+                    )
+                    logger.info("Connected to voice channel")
+                except asyncio.TimeoutError:
+                    logger.error("Voice connection timeout, retrying...")
+                    vc = await asyncio.wait_for(
+                        music_channel.connect(cls=wavelink.Player, timeout=10.0),
+                        timeout=15.0
+                    )
+                    logger.info("Connected to voice channel on retry")
             else:
                 vc = interaction.guild.voice_client
-                logger.info("Using existing voice connection")
+                if not vc.connected:
+                    logger.warning("Voice client exists but not connected, reconnecting...")
+                    await vc.disconnect(force=True)
+                    vc = await asyncio.wait_for(
+                        music_channel.connect(cls=wavelink.Player, timeout=15.0),
+                        timeout=20.0
+                    )
+                    logger.info("Reconnected to voice channel")
+                else:
+                    logger.info("Using existing voice connection")
             
             queue = self.music_cog.get_queue(interaction.guild.id)
             
@@ -1037,9 +1067,23 @@ class PlaybackModeView(discord.ui.View):
             
             if not vc.playing:
                 logger.info(f"Starting playback: {self.track.title}")
-                await vc.play(self.track)
-                queue.current = self.track
-                logger.info("Playback started successfully")
+                try:
+                    await vc.play(self.track)
+                    queue.current = self.track
+                    logger.info("Playback started successfully")
+                except wavelink.exceptions.LavalinkException as e:
+                    logger.error(f"Lavalink error starting playback: {e}")
+                    if "404" in str(e) or "session" in str(e).lower():
+                        logger.warning("Lavalink session lost, attempting to reconnect...")
+                        await vc.disconnect(force=True)
+                        await asyncio.sleep(1)
+                        vc = await music_channel.connect(cls=wavelink.Player, timeout=15.0)
+                        logger.info("Reconnected to voice channel")
+                        await vc.play(self.track)
+                        queue.current = self.track
+                        logger.info("Playback started successfully after reconnect")
+                    else:
+                        raise
                 
                 # Analytics tracking
                 try:
@@ -1391,14 +1435,40 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                 logger.error(f"Error creating music channel: {e}")
                 raise
             
-            # Connect to voice channel
+            # Connect to voice channel with retry logic
             try:
                 if not interaction.guild.voice_client:
-                    vc = await music_channel.connect(cls=wavelink.Player)
-                    logger.info("Connected to voice channel")
+                    # Try to connect with timeout
+                    try:
+                        vc = await asyncio.wait_for(
+                            music_channel.connect(cls=wavelink.Player, timeout=15.0),
+                            timeout=20.0
+                        )
+                        logger.info("Connected to voice channel")
+                    except asyncio.TimeoutError:
+                        logger.error("Voice connection timeout, retrying...")
+                        # Retry once
+                        vc = await asyncio.wait_for(
+                            music_channel.connect(cls=wavelink.Player, timeout=10.0),
+                            timeout=15.0
+                        )
+                        logger.info("Connected to voice channel on retry")
                 else:
                     vc = interaction.guild.voice_client
-                    logger.info("Using existing voice connection")
+                    # Check if connection is still valid
+                    if not vc.connected:
+                        logger.warning("Voice client exists but not connected, reconnecting...")
+                        await vc.disconnect(force=True)
+                        vc = await asyncio.wait_for(
+                            music_channel.connect(cls=wavelink.Player, timeout=15.0),
+                            timeout=20.0
+                        )
+                        logger.info("Reconnected to voice channel")
+                    else:
+                        logger.info("Using existing voice connection")
+            except asyncio.TimeoutError:
+                logger.error("Voice connection timeout after retry")
+                raise Exception("ボイスチャンネルへの接続がタイムアウトしました。もう一度お試しください。")
             except Exception as e:
                 logger.error(f"Error connecting to voice: {e}")
                 raise
@@ -1416,6 +1486,26 @@ class SlashCommandTrackSelectionView(discord.ui.View):
                     await vc.play(track)
                     queue.current = track
                     logger.info("Playback started successfully")
+                except wavelink.exceptions.LavalinkException as e:
+                    logger.error(f"Lavalink error starting playback: {e}")
+                    # Try to reconnect to Lavalink and retry
+                    if "404" in str(e) or "session" in str(e).lower():
+                        logger.warning("Lavalink session lost, attempting to reconnect...")
+                        try:
+                            # Disconnect and reconnect
+                            await vc.disconnect(force=True)
+                            await asyncio.sleep(1)
+                            vc = await music_channel.connect(cls=wavelink.Player, timeout=15.0)
+                            logger.info("Reconnected to voice channel")
+                            # Retry playback
+                            await vc.play(track)
+                            queue.current = track
+                            logger.info("Playback started successfully after reconnect")
+                        except Exception as retry_error:
+                            logger.error(f"Failed to reconnect and retry: {retry_error}")
+                            raise Exception("Lavalinkサーバーとの接続が切れました。もう一度お試しください。")
+                    else:
+                        raise
                 except Exception as e:
                     logger.error(f"Error starting playback: {e}")
                     raise

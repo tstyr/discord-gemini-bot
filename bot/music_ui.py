@@ -2,6 +2,7 @@ import discord
 from discord.ui import View, Button
 import asyncio
 import logging
+import wavelink
 
 logger = logging.getLogger(__name__)
 
@@ -246,9 +247,32 @@ class MusicPlayerView(View):
             next_track = queue.get_next(force_skip=True)
             
             if next_track:
-                # Play next track
-                await vc.play(next_track)
-                logger.info(f"Skipped to: {next_track.title}")
+                # Play next track with error handling
+                try:
+                    await vc.play(next_track)
+                    logger.info(f"Skipped to: {next_track.title}")
+                except wavelink.exceptions.LavalinkException as e:
+                    logger.error(f"Lavalink error during skip: {e}")
+                    if "404" in str(e) or "session" in str(e).lower():
+                        logger.warning("Lavalink session lost during skip, attempting to reconnect...")
+                        try:
+                            # Get music channel
+                            music_cog = self.bot.get_cog('MusicPlayer')
+                            if music_cog and vc.channel:
+                                await vc.disconnect(force=True)
+                                await asyncio.sleep(1)
+                                vc = await vc.channel.connect(cls=wavelink.Player, timeout=15.0)
+                                logger.info("Reconnected to voice channel")
+                                await vc.play(next_track)
+                                logger.info(f"Skipped to: {next_track.title} after reconnect")
+                            else:
+                                raise Exception("Could not reconnect to voice channel")
+                        except Exception as reconnect_error:
+                            logger.error(f"Failed to reconnect: {reconnect_error}")
+                            await interaction.followup.send("❌ Lavalinkサーバーとの接続が切れました。もう一度お試しください。", ephemeral=True)
+                            return
+                    else:
+                        raise
                 
                 # Wait a bit for the track to start
                 await asyncio.sleep(0.3)
@@ -275,7 +299,10 @@ class MusicPlayerView(View):
             import traceback
             logger.error(traceback.format_exc())
             try:
-                await interaction.followup.send("❌ スキップ中にエラーが発生しました", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ スキップ中にエラーが発生しました", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ スキップ中にエラーが発生しました", ephemeral=True)
             except:
                 pass
     
