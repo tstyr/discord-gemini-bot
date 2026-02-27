@@ -58,21 +58,27 @@ class SupabaseClient:
         """必要なテーブルが存在することを確認"""
         try:
             # system_stats テーブルの確認
-            result = self.client.table('system_stats').select('*').limit(1).execute()
+            result = await asyncio.to_thread(
+                lambda: self.client.table('system_stats').select('*').limit(1).execute()
+            )
             logger.info("✅ system_stats table exists")
         except Exception as e:
             logger.warning(f"⚠️  system_stats table check failed: {e}")
         
         try:
             # command_queue テーブルの確認
-            result = self.client.table('command_queue').select('*').limit(1).execute()
+            result = await asyncio.to_thread(
+                lambda: self.client.table('command_queue').select('*').limit(1).execute()
+            )
             logger.info("✅ command_queue table exists")
         except Exception as e:
             logger.warning(f"⚠️  command_queue table check failed: {e}")
         
         try:
             # active_sessions テーブルの確認
-            result = self.client.table('active_sessions').select('*').limit(1).execute()
+            result = await asyncio.to_thread(
+                lambda: self.client.table('active_sessions').select('*').limit(1).execute()
+            )
             logger.info("✅ active_sessions table exists")
         except Exception as e:
             logger.warning(f"⚠️  active_sessions table check failed: {e}")
@@ -100,25 +106,33 @@ class SupabaseClient:
             return
         
         try:
-            # bot_logsテーブルの件数を確認
-            result = self.client.table('bot_logs').select('id', count='exact').execute()
+            # bot_logsテーブルの件数を確認（非同期化）
+            result = await asyncio.to_thread(
+                lambda: self.client.table('bot_logs').select('id', count='exact').execute()
+            )
             total_count = result.count if hasattr(result, 'count') else 0
             
             if total_count > 100000:
                 # 削除する件数を計算
                 delete_count = total_count - 100000
                 
-                # 古いログを削除（created_atの古い順）
-                self.client.rpc('delete_old_logs', {'delete_count': delete_count}).execute()
+                # 古いログを削除（created_atの古い順）（非同期化）
+                await asyncio.to_thread(
+                    lambda: self.client.rpc('delete_old_logs', {'delete_count': delete_count}).execute()
+                )
                 
                 logger.info(f"🗑️ Deleted {delete_count} old logs. Total: {total_count} -> 100000")
             else:
                 logger.debug(f"📊 Log count: {total_count}/100000 (no cleanup needed)")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to cleanup logs: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラー（57014）やその他のDBエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Log cleanup timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to cleanup logs (continuing): {e}")
+            # エラーでもBot処理は継続
     
     @health_monitor_loop.before_loop
     async def before_health_monitor(self):
@@ -178,15 +192,20 @@ class SupabaseClient:
                 'status': 'online'                      # ✅ 追加
             }
             
-            # INSERTでデータを追加（recorded_at, created_atは自動）
-            self.client.table('system_stats').insert(stats).execute()
+            # INSERTでデータを追加（recorded_at, created_atは自動）（非同期化）
+            await asyncio.to_thread(
+                lambda: self.client.table('system_stats').insert(stats).execute()
+            )
             
             logger.info(f"📊 System stats sent: CPU={cpu_usage:.1f}%, RAM={ram_usage:.1f}%, Status=online")
             
         except Exception as e:
-            logger.error(f"❌ Failed to send system stats: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ System stats timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to send system stats (continuing): {e}")
     
     async def _send_network_stats(self):
         """ネットワーク統計をSupabaseに送信"""
@@ -221,7 +240,10 @@ class SupabaseClient:
                 'mb_total': float(mb_total)
             }
             
-            self.client.table('network_stats').insert(stats).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table('network_stats').insert(stats).execute()
+            )
             
             # 現在の値を保存
             self._last_net_io = net_io
@@ -230,10 +252,13 @@ class SupabaseClient:
             
         except Exception as e:
             # テーブルが存在しない場合は警告のみ
-            if 'does not exist' in str(e) or 'PGRST204' in str(e):
+            error_msg = str(e)
+            if 'does not exist' in error_msg or 'PGRST204' in error_msg:
                 logger.warning(f"⚠️ network_stats table does not exist. Please run add_network_stats_table.sql in Supabase.")
+            elif '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Network stats timeout (continuing): {e}")
             else:
-                logger.error(f"❌ Failed to send network stats: {e}")
+                logger.error(f"❌ Failed to send network stats (continuing): {e}")
     
     async def start_realtime_listener(self):
         """Realtimeチャンネルでコマンドキューを監視"""
@@ -258,13 +283,15 @@ class SupabaseClient:
         
         while self.is_running:
             try:
-                # pending状態のコマンドを取得
-                result = self.client.table('command_queue')\
-                    .select('*')\
-                    .eq('status', 'pending')\
-                    .order('created_at', desc=False)\
-                    .limit(10)\
+                # pending状態のコマンドを取得（非同期化）
+                result = await asyncio.to_thread(
+                    lambda: self.client.table('command_queue')
+                    .select('*')
+                    .eq('status', 'pending')
+                    .order('created_at', desc=False)
+                    .limit(10)
                     .execute()
+                )
                 
                 if result.data:
                     for command in result.data:
@@ -273,7 +300,11 @@ class SupabaseClient:
                 await asyncio.sleep(1)  # 1秒ごとにポーリング
                 
             except Exception as e:
-                logger.error(f"❌ Command queue polling error: {e}")
+                error_msg = str(e)
+                if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                    logger.warning(f"⚠️ Command queue polling timeout (continuing): {e}")
+                else:
+                    logger.error(f"❌ Command queue polling error (continuing): {e}")
                 await asyncio.sleep(5)
     
     async def _process_command(self, command: Dict[str, Any]):
@@ -285,10 +316,12 @@ class SupabaseClient:
         logger.info(f"📥 Processing command: {command_name} (ID: {command_id})")
         
         try:
-            # コマンドを処理中に更新
-            self.client.table('command_queue').update({
-                'status': 'processing'
-            }).eq('id', command_id).execute()
+            # コマンドを処理中に更新（非同期化）
+            await asyncio.to_thread(
+                lambda: self.client.table('command_queue').update({
+                    'status': 'processing'
+                }).eq('id', command_id).execute()
+            )
             
             result = None
             error = None
@@ -309,20 +342,31 @@ class SupabaseClient:
             else:
                 error = f"Unknown command: {command_name}"
             
-            # 完了状態に更新
-            self.client.table('command_queue').update({
-                'status': 'completed' if not error else 'failed'
-            }).eq('id', command_id).execute()
+            # 完了状態に更新（非同期化）
+            await asyncio.to_thread(
+                lambda: self.client.table('command_queue').update({
+                    'status': 'completed' if not error else 'failed'
+                }).eq('id', command_id).execute()
+            )
             
             logger.info(f"✅ Command completed: {command_name}")
             
         except Exception as e:
-            logger.error(f"❌ Command processing failed: {e}")
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Command processing timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Command processing failed (continuing): {e}")
             
-            # 失敗状態に更新
-            self.client.table('command_queue').update({
-                'status': 'failed'
-            }).eq('id', command_id).execute()
+            # 失敗状態に更新（非同期化）
+            try:
+                await asyncio.to_thread(
+                    lambda: self.client.table('command_queue').update({
+                        'status': 'failed'
+                    }).eq('id', command_id).execute()
+                )
+            except Exception as update_error:
+                logger.error(f"❌ Failed to update command status: {update_error}")
     
     async def _handle_music_pause(self, payload: Dict) -> str:
         """一時停止コマンド"""
@@ -432,17 +476,25 @@ class SupabaseClient:
                     'voice_members_count': int(track_data.get('members_count', 0))  # ✅ 追加
                 }
                 
-                self.client.table('active_sessions').upsert(session_data).execute()
+                # 非同期化
+                await asyncio.to_thread(
+                    lambda: self.client.table('active_sessions').upsert(session_data).execute()
+                )
                 logger.debug(f"📊 Active session updated for guild {guild_id}")
             else:
-                # セッション終了
-                self.client.table('active_sessions').delete().eq('guild_id', str(guild_id)).execute()
+                # セッション終了（非同期化）
+                await asyncio.to_thread(
+                    lambda: self.client.table('active_sessions').delete().eq('guild_id', str(guild_id)).execute()
+                )
                 logger.debug(f"📊 Active session cleared for guild {guild_id}")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to update active session: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Active session update timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to update active session (continuing): {e}")
     
     async def log_gemini_usage(self, guild_id: int, user_id: int, prompt_tokens: int, 
                               completion_tokens: int, total_tokens: int, model: str = "gemini-pro"):
@@ -461,11 +513,19 @@ class SupabaseClient:
                 "model": str(model)
             }
             
-            self.client.table("gemini_usage").insert(data).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table("gemini_usage").insert(data).execute()
+            )
             logger.debug(f"📊 Gemini usage logged: {total_tokens} tokens")
             
         except Exception as e:
-            logger.error(f"❌ Failed to log Gemini usage: {e}")
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Gemini usage log timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to log Gemini usage (continuing): {e}")
     
     async def log_music_play(self, guild_id: int, track_title: str, track_url: str,
                             duration_ms: int, requested_by: str, requested_by_id: int):
@@ -484,13 +544,19 @@ class SupabaseClient:
                 "requested_by_id": str(requested_by_id)  # ✅ 追加
             }
             
-            self.client.table("music_history").insert(data).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table("music_history").insert(data).execute()
+            )
             logger.debug(f"🎵 Music history logged: {track_title}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to log music play: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Music history log timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to log music play (continuing): {e}")
     
     async def log_bot_event(self, level: str, message: str):
         """BotイベントログをSupabaseに送信"""
@@ -504,10 +570,18 @@ class SupabaseClient:
                 "message": str(message)
             }
             
-            self.client.table("bot_logs").insert(data).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table("bot_logs").insert(data).execute()
+            )
             
         except Exception as e:
-            logger.error(f"❌ Failed to log bot event: {e}")
+            # タイムアウトエラーをキャッチして継続（ログ記録なので失敗しても問題なし）
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.debug(f"⚠️ Bot event log timeout (continuing): {e}")
+            else:
+                logger.debug(f"❌ Failed to log bot event (continuing): {e}")
     
     async def save_conversation_log(self, user_id: int, user_name: str, prompt: str, response: str):
         """会話ログをSupabaseに保存"""
@@ -523,12 +597,18 @@ class SupabaseClient:
                 # ✅ recorded_at は削除（Supabaseで自動設定）
             }
             
-            self.client.table('conversation_logs').insert(data).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table('conversation_logs').insert(data).execute()
+            )
             logger.info(f"💬 Conversation log saved for {user_name}")
         except Exception as e:
-            logger.error(f"❌ Failed to save conversation log: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Conversation log timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to save conversation log (continuing): {e}")
     
     async def save_music_log(self, guild_id: int, song_title: str, requested_by: str, requested_by_id: int):
         """音楽ログをSupabaseに保存（music_logs）"""
@@ -544,12 +624,18 @@ class SupabaseClient:
                 # ✅ recorded_at は削除（Supabaseで自動設定）
             }
             
-            self.client.table('music_logs').insert(data).execute()
+            # 非同期化
+            await asyncio.to_thread(
+                lambda: self.client.table('music_logs').insert(data).execute()
+            )
             logger.info(f"🎵 Music log saved: {song_title} by {requested_by}")
         except Exception as e:
-            logger.error(f"❌ Failed to save music log: {e}")
-            import traceback
-            traceback.print_exc()
+            # タイムアウトエラーをキャッチして継続
+            error_msg = str(e)
+            if '57014' in error_msg or 'statement timeout' in error_msg.lower():
+                logger.warning(f"⚠️ Music log timeout (continuing): {e}")
+            else:
+                logger.error(f"❌ Failed to save music log (continuing): {e}")
     
     async def shutdown(self):
         """シャットダウン処理"""
