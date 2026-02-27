@@ -315,18 +315,12 @@ class MusicPlayer(commands.Cog):
             return user_message
     
     @app_commands.command(name="play", description="音楽を再生します")
-    @app_commands.describe(
-        query="曲名、アーティスト名、またはURL (YouTube/Spotify/SoundCloud)",
-        source="検索ソース"
-    )
-    @app_commands.choices(source=[
-        app_commands.Choice(name="YouTube", value="youtube"),
-        app_commands.Choice(name="Spotify", value="spotify"),
-        app_commands.Choice(name="SoundCloud", value="soundcloud"),
-        app_commands.Choice(name="自動検出", value="auto"),
-    ])
-    async def play(self, interaction: discord.Interaction, query: str, source: str = "auto"):
-        """Play music command with source selection"""
+    @app_commands.describe(query="曲名、アーティスト名、またはURL")
+    async def play(self, interaction: discord.Interaction, query: str):
+        """Play music command - simplified version"""
+        # Default to auto source
+        source = "auto"
+        
         # ✅ すぐにdeferして3秒タイムアウトを回避
         await interaction.response.defer()
         
