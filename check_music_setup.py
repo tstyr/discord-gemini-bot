@@ -14,10 +14,10 @@ def check_env_vars():
     print("=" * 60)
     
     required_vars = {
-        'LAVALINK_HOST': 'localhost',
-        'LAVALINK_PORT': '2333',
+        'LAVALINK_HOST': 'lavalink.jirayu.net',
+        'LAVALINK_PORT': '443',
         'LAVALINK_PASSWORD': 'youshallnotpass',
-        'LAVALINK_SECURE': 'false'
+        'LAVALINK_SECURE': 'true'
     }
     
     env_file = Path('bot/.env')
@@ -104,8 +104,8 @@ def check_lavalink_connection():
     print("🔌 Lavalink接続チェック")
     print("=" * 60)
     
-    host = os.getenv('LAVALINK_HOST', 'localhost')
-    port = int(os.getenv('LAVALINK_PORT', '2333'))
+    host = os.getenv('LAVALINK_HOST', 'lavalink.jirayu.net')
+    port = int(os.getenv('LAVALINK_PORT', '443'))
     
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
