@@ -215,16 +215,30 @@ class MusicPlayerView(View):
         try:
             vc = self.get_vc()
             if vc and vc.playing:
+                # Acknowledge the interaction first
+                await interaction.response.defer()
+                
+                # Stop current track (this will trigger on_wavelink_track_end)
                 await vc.stop()
-                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+                
+                # Wait a bit for the next track to start
+                await asyncio.sleep(0.5)
+                
+                # Update the message
+                try:
+                    await interaction.edit_original_response(embed=self.create_embed(), view=self)
+                except:
+                    pass
             else:
                 await interaction.response.send_message("❌ 再生中の曲がありません", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in skip button: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             try:
-                await interaction.response.send_message("❌ エラーが発生しました", ephemeral=True)
+                await interaction.followup.send("❌ エラーが発生しました", ephemeral=True)
             except:
-                await interaction.response.defer()
+                pass
         vc = self.get_vc()
         if vc:
             await vc.stop()

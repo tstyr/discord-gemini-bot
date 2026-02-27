@@ -894,12 +894,21 @@ class MusicPlayer(commands.Cog):
                 logger.info(f"Playing next track: {next_track.title} (loop mode: {queue.loop_mode})")
                 
                 # Ensure track has extras (for requester info)
-                if not hasattr(next_track.extras, 'requester_name'):
-                    # If extras are missing, try to preserve from current track
-                    if queue.current and hasattr(queue.current.extras, 'requester_name'):
-                        next_track.extras.requester_name = queue.current.extras.requester_name
-                        next_track.extras.requester_id = queue.current.extras.requester_id
-                        logger.info(f"Preserved requester info: {next_track.extras.requester_name}")
+                try:
+                    if not hasattr(next_track, 'extras') or not next_track.extras:
+                        logger.warning("Track has no extras, creating new")
+                        # Can't create extras, just log it
+                    elif not hasattr(next_track.extras, 'requester_name'):
+                        # If extras exist but requester_name is missing
+                        if queue.current and hasattr(queue.current, 'extras') and hasattr(queue.current.extras, 'requester_name'):
+                            try:
+                                next_track.extras.requester_name = queue.current.extras.requester_name
+                                next_track.extras.requester_id = queue.current.extras.requester_id
+                                logger.info(f"Preserved requester info: {next_track.extras.requester_name}")
+                            except Exception as e:
+                                logger.warning(f"Could not set extras: {e}")
+                except Exception as e:
+                    logger.warning(f"Error checking extras: {e}")
                 
                 await player.play(next_track)
                 logger.info(f"✅ Started playing: {next_track.title}")

@@ -187,8 +187,9 @@ class DiscordBot(commands.Bot):
         if not hasattr(self, 'status_task') or self.status_task is None or self.status_task.done():
             self.status_task = asyncio.create_task(self._status_rotation())
         
-        # ✅ Resume music sessions from Supabase
-        await self._resume_music_sessions()
+        # ✅ Resume music sessions from Supabase (disabled for now)
+        # await self._resume_music_sessions()
+        logger.info("Music session resume is disabled")
         
         # Send restart notification to all chat channels
         for guild in self.guilds:
