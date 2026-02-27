@@ -83,6 +83,10 @@ plugins:
       - ANDROID_LITE
       - WEB
       - MUSIC
+    # YouTube bot detection bypass (po-token authentication)
+    pot:
+      token: "${YOUTUBE_PO_TOKEN:}"
+      visitorData: "${YOUTUBE_VISITOR_DATA:}"
 
   lavasrc:
     providers:
