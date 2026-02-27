@@ -698,9 +698,6 @@ class MusicPlayer(commands.Cog):
         except Exception as e:
             logger.error(f"Error moving to channel: {e}")
             await interaction.response.send_message(f"❌ チャンネル移動中にエラーが発生しました: {str(e)}", ephemeral=True)
-                'type': 'music_stopped',
-                'guild_id': interaction.guild.id
-            })
     
     @app_commands.command(name="queue", description="現在のキューを表示します")
     async def queue_command(self, interaction: discord.Interaction):
